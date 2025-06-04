@@ -1,8 +1,22 @@
-.venv/
+# Ignorar pasta de uploads e arquivos de dados
+uploads/
+data/
+
+# Ignorar arquivos de cache Python
 __pycache__/
 *.py[cod]
-*.class
+*$py.class
+
+# Ignorar arquivos de ambiente
 .env
-.DS_Store
-uploads/*.csv
+.venv
+env/
+venv/
+ENV/
+
+# Ignorar logs
 *.log
+
+# Arquivos específicos do sistema
+.DS_Store
+Thumbs.db

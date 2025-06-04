@@ -20,6 +20,14 @@ def init_session_state():
         # Rastreia os arquivos que o usuário já fez upload
         st.session_state.uploaded_files = set()
 
+    if "selected_file" not in st.session_state:
+        # Armazena o arquivo atualmente selecionado para consultas
+        st.session_state.selected_file = None
+
+    if "submit_question" not in st.session_state:
+        # Flag para controlar o envio de perguntas
+        st.session_state.submit_question = False
+
 
 def get_username():
     """

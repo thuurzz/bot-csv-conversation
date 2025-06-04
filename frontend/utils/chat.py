@@ -3,6 +3,8 @@ import os
 import pandas as pd
 from dotenv import load_dotenv
 from .file_manager import list_available_files
+import requests
+import json
 
 # Carregar variáveis de ambiente com caminho correto
 dotenv_path = os.path.join(os.path.dirname(
@@ -11,6 +13,41 @@ load_dotenv(dotenv_path)
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads"))
 MODEL_NAME = os.getenv("MODEL_NAME", "default-model")
+
+# Obter configuração do backend
+_BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
+BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
+
+# Se o BACKEND_HOST for 0.0.0.0 (endereço de escuta), usar localhost para conexão
+BACKEND_HOST = "localhost" if _BACKEND_HOST == "0.0.0.0" else _BACKEND_HOST
+
+
+def check_backend_status():
+    """
+    Verifica se o backend está conectado usando a rota de health check
+
+    Returns:
+        tuple: (status_conectado: bool, mensagem: str)
+    """
+    try:
+        # Montar a URL com a garantia de que o protocolo está incluído
+        if BACKEND_HOST.startswith(('http://', 'https://')):
+            url = f"{BACKEND_HOST}:{BACKEND_PORT}/api/health"
+        else:
+            url = f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/health"
+
+        print(f"Tentando conectar ao backend: {url}")  # Log para debug
+        response = requests.get(url, timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            timestamp = data.get("timestamp", "")
+            return True, f"Backend: Conectado (última verificação: {timestamp})"
+        else:
+            return False, f"Backend: Não conectado (erro de resposta: {response.status_code})"
+    except requests.RequestException as e:
+        return False, f"Backend: Não conectado (falha na conexão: {str(e)})"
+    except Exception as e:
+        return False, f"Backend: Erro de conexão ({str(e)})"
 
 
 def display_chat_messages():
@@ -53,8 +90,8 @@ def process_message(user_input):
 
 def generate_response(user_input):
     """
-    Gera uma resposta com base na pergunta do usuário.
-    Este é um placeholder simples - será substituído por chamadas ao backend.
+    Gera uma resposta com base na pergunta do usuário usando o backend.
+    Faz uma chamada ao backend para processamento da consulta.
 
     Args:
         user_input: Texto da pergunta do usuário
@@ -71,28 +108,83 @@ def generate_response(user_input):
                 "Por favor, faça upload de um arquivo na barra lateral para que "
                 "eu possa ajudar a analisar seus dados.")
 
-    # Resposta simples com base em palavras-chave (será substituída por um modelo real)
-    user_input_lower = user_input.lower()
+    # Verificar se há um arquivo selecionado para priorizar
+    selected_file = st.session_state.get('selected_file')
+    prioritized_files = available_files
 
-    if "listar" in user_input_lower and ("arquivo" in user_input_lower or "csv" in user_input_lower):
-        files_list = ", ".join(available_files)
-        return f"Os arquivos CSV disponíveis são: {files_list}"
+    if selected_file and selected_file in available_files:
+        # Movendo o arquivo selecionado para o início da lista para priorizar
+        prioritized_files = [selected_file] + \
+            [f for f in available_files if f != selected_file]
+        print(f"Arquivo priorizado para consulta: {selected_file}")
 
-    elif "coluna" in user_input_lower or "dados" in user_input_lower:
-        # Exemplo simples - mostrar colunas do primeiro arquivo
-        try:
-            sample_file = os.path.join(UPLOAD_FOLDER, available_files[0])
-            df = pd.read_csv(sample_file)
-            columns = ", ".join(df.columns)
-            return f"O arquivo '{available_files[0]}' contém as seguintes colunas: {columns}"
-        except Exception as e:
-            return f"Ocorreu um erro ao ler o arquivo: {str(e)}"
+    try:
+        # Verifica se o backend está acessível
+        backend_connected, _ = check_backend_status()
 
-    # Resposta padrão
-    return ("Estou aqui para ajudar com a análise dos seus dados CSV. "
-            "No momento, sou apenas uma simulação para a interface front-end. "
-            "Em breve, estarei conectado a um modelo de IA no backend para "
-            "responder perguntas sobre seus dados de forma mais avançada.")
+        if backend_connected:
+            # Preparar a URL para a chamada da API
+            if BACKEND_HOST.startswith(('http://', 'https://')):
+                url = f"{BACKEND_HOST}:{BACKEND_PORT}/api/chat"
+            else:
+                url = f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/chat"
+
+            # Dados para a requisição
+            payload = {
+                "message": user_input,
+                "files": prioritized_files,  # Usando a lista com arquivo selecionado priorizado
+                "selected_file": selected_file  # Informando explicitamente o arquivo selecionado
+            }
+
+            # Fazer a chamada para o backend
+            print(f"Enviando consulta para o backend: {url}")
+            response = requests.post(url, json=payload, timeout=30)
+
+            if response.status_code == 200:
+                # Processar a resposta do backend
+                data = response.json()
+                answer = data.get("answer", "")
+
+                # Registrar informações adicionais para debug
+                query = data.get("query", "")
+                if query:
+                    print(f"Query gerada pelo backend: {query}")
+
+                return answer
+            else:
+                return f"Erro ao processar a consulta (código {response.status_code}). Por favor, tente novamente mais tarde."
+
+        # Se o backend não estiver disponível, usar a lógica local de fallback
+        print("Backend não disponível. Usando respostas locais de fallback.")
+
+        # Resposta simples com base em palavras-chave (fallback)
+        user_input_lower = user_input.lower()
+
+        if "listar" in user_input_lower and ("arquivo" in user_input_lower or "csv" in user_input_lower):
+            files_list = ", ".join(prioritized_files)
+            return f"Os arquivos CSV disponíveis são: {files_list}"
+
+        elif "coluna" in user_input_lower or "dados" in user_input_lower:
+            # Usar o arquivo selecionado se disponível, ou o primeiro da lista
+            target_file = selected_file if selected_file else prioritized_files[0]
+            try:
+                sample_file = os.path.join(UPLOAD_FOLDER, target_file)
+                df = pd.read_csv(sample_file)
+                columns = ", ".join(df.columns)
+                return f"O arquivo '{target_file}' contém as seguintes colunas: {columns}"
+            except Exception as e:
+                return f"Ocorreu um erro ao ler o arquivo: {str(e)}"
+
+        # Resposta padrão de fallback
+        target_file = selected_file if selected_file else "nenhum arquivo específico"
+        return (f"Não consegui conectar ao backend para processamento avançado. "
+                f"Você está consultando sobre {target_file}. "
+                f"Você tem {len(available_files)} arquivo(s) disponível(is). "
+                "Tente fazer perguntas mais específicas sobre os dados.")
+
+    except Exception as e:
+        print(f"Erro ao gerar resposta: {str(e)}")
+        return f"Ocorreu um erro ao processar sua pergunta: {str(e)}"
 
 
 def analyze_csv(filename, query):
