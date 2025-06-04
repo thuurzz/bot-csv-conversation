@@ -110,3 +110,47 @@ def get_file_preview(filename):
             return f"Arquivo: {filename}"
 
     return "Arquivo não encontrado"
+
+
+def remove_file(filename):
+    """
+    Remove um arquivo CSV e seu arquivo de prévia da pasta de uploads
+
+    Args:
+        filename: Nome do arquivo CSV a ser removido
+
+    Returns:
+        bool: True se o arquivo foi removido com sucesso, False caso contrário
+    """
+    try:
+        # Caminho completo para o arquivo CSV
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+        # Caminho para o arquivo de prévia
+        preview_path = os.path.join(UPLOAD_FOLDER, f"preview_{filename}.info")
+
+        # Verifica se o arquivo existe antes de tentar removê-lo
+        if not os.path.exists(file_path):
+            st.error(f"Arquivo {filename} não encontrado.")
+            return False
+
+        # Remove o arquivo CSV
+        os.remove(file_path)
+
+        # Remove também o arquivo de prévia se existir
+        if os.path.exists(preview_path):
+            os.remove(preview_path)
+
+        # Atualiza a sessão se necessário
+        if "uploaded_files" in st.session_state and filename in st.session_state.uploaded_files:
+            st.session_state.uploaded_files.remove(filename)
+
+        # Se este era o arquivo selecionado, limpa a seleção
+        if "selected_file" in st.session_state and st.session_state.selected_file == filename:
+            st.session_state.selected_file = None
+
+        return True
+
+    except Exception as e:
+        st.error(f"Erro ao remover arquivo: {str(e)}")
+        return False

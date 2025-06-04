@@ -5,7 +5,7 @@ import pandas as pd
 import uuid
 from pathlib import Path
 from utils.session import init_session_state, get_username, clear_chat_history
-from utils.file_manager import list_available_files, upload_file, get_file_preview
+from utils.file_manager import list_available_files, upload_file, get_file_preview, remove_file
 from utils.chat import display_chat_messages, process_message, analyze_csv, check_backend_status
 
 # Carregar variáveis de ambiente com caminho correto
@@ -120,6 +120,17 @@ def main():
                     process_message(question)
                     # O st.rerun() não é necessário aqui, pois o processo de submissão
                     # já será acionado pela atualização do estado
+
+                # Botão para remover o arquivo selecionado
+                if st.button("🗑️ Remover arquivo selecionado", key="remove_selected_sidebar"):
+                    if remove_file(selected_file):
+                        st.success(
+                            f"Arquivo '{selected_file}' removido com sucesso!")
+                        st.session_state.selected_file = None
+                        st.rerun()
+                    else:
+                        st.error(
+                            f"Erro ao remover o arquivo '{selected_file}'.")
         else:
             st.info(
                 "Nenhum arquivo disponível. Faça upload de um arquivo CSV para começar.")
@@ -156,20 +167,20 @@ def main():
         with sugestoes_col1:
             if st.button("Listar todos os arquivos"):
                 process_message("Listar todos os arquivos CSV disponíveis")
-                # Não chamar st.rerun() aqui, já que o código de processamento será executado na próxima renovação da página
+                st.rerun()  # Recarregar a página para mostrar a resposta imediatamente
 
             if st.button("Mostrar estatísticas básicas"):
                 process_message("Mostrar estatísticas básicas dos dados")
-                # Não chamar st.rerun() aqui
+                st.rerun()  # Recarregar a página para mostrar a resposta imediatamente
 
         with sugestoes_col2:
             if st.button("Verificar colunas"):
                 process_message("Quais são as colunas dos arquivos?")
-                # Não chamar st.rerun() aqui
+                st.rerun()  # Recarregar a página para mostrar a resposta imediatamente
 
             if st.button("Limpar Chat"):
                 clear_chat_history()
-                # Não chamar st.rerun() aqui
+                st.rerun()  # Recarregar a página para limpar o histórico imediatamente
 
     with col2:
         # Informações sobre o projeto
@@ -206,6 +217,25 @@ def main():
         # Mostrar arquivos em tabela compacta
         if files:
             st.subheader("Arquivos Disponíveis")
+
+            # Criando colunas para cada arquivo com botão de remover
+            for file in files:
+                col_file, col_remove = st.columns([3, 1])
+
+                with col_file:
+                    st.write(file)
+
+                with col_remove:
+                    if st.button("🗑️ Remover", key=f"remove_{file}"):
+                        if remove_file(file):
+                            st.success(
+                                f"Arquivo '{file}' removido com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error(f"Erro ao remover arquivo '{file}'.")
+
+            # Mostrar também em formato de tabela para referência
+            st.caption("Lista completa de arquivos:")
             df_files = pd.DataFrame({"Arquivo": files})
             st.dataframe(df_files, hide_index=True, use_container_width=True)
 

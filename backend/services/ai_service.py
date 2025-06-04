@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 import logging
 import json
 from pathlib import Path
@@ -39,6 +39,13 @@ class QueryResult(BaseModel):
         description="Query em pandas para executar nos dados (se aplicável)")
     context: str = Field(
         description="Informações contextuais sobre a resposta")
+
+    # Validator para garantir que answer seja sempre string
+    def __init__(self, **data):
+        # Converter answer para string se for uma lista
+        if 'answer' in data and isinstance(data['answer'], (list, tuple)):
+            data['answer'] = "\n".join(map(str, data['answer']))
+        super().__init__(**data)
 
 
 # Parser para saída estruturada
@@ -92,7 +99,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
 
         # Criar prompt para o modelo
         template = """
-        Você é um assistente especializado em análise de dados que responde perguntas sobre arquivos CSV.
+        Você é um assistente especializado em análise de dados que responde perguntas sobre dados contidos em arquivos CSV.
         
         Informações sobre os arquivos disponíveis:
         {file_info}
@@ -102,6 +109,8 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
         
         Pergunta do usuário:
         {message}
+        
+        IMPORTANTE: Sempre responda com texto em formato string, não em listas. Estas respostas serão processadas por um parser que espera uma string e usado como query em pandas.
         
         Responda usando este formato:
         {format_instructions}
@@ -118,7 +127,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
 
         # Configurar modelo
         model = ChatOpenAI(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             temperature=0.1,
             api_key=OPENAI_API_KEY
         )
@@ -128,12 +137,60 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
 
         # Obter resposta
         with get_openai_callback() as cb:
-            response = chain.invoke({
-                "file_info": file_info_str,
-                "message": message
-            })
+            try:
+                response = chain.invoke({
+                    "file_info": file_info_str,
+                    "message": message
+                })
+                logger.info(f"Token usage: {cb.total_tokens}")
 
-            logger.info(f"Token usage: {cb.total_tokens}")
+                # Garantir que a resposta.answer seja sempre string
+                if isinstance(response.answer, list):
+                    response.answer = "\n".join(map(str, response.answer))
+
+            except Exception as e:
+                logger.error(f"Erro na invocação do modelo: {str(e)}")
+                # Tentar recuperar o conteúdo da resposta do modelo
+                try:
+                    # Tentar analisar o erro para extrair a resposta
+                    error_str = str(e)
+                    match = re.search(
+                        r'{"answer": (\[.*?\]|".*?"), "query": .*?}', error_str, re.DOTALL)
+
+                    if match:
+                        # Tentar parsear o JSON completo
+                        try:
+                            raw_json_str = match.group(0)
+                            raw_response = json.loads(raw_json_str)
+
+                            answer_content = raw_response.get('answer', '')
+                            if isinstance(answer_content, list):
+                                answer_string = "\n".join(
+                                    map(str, answer_content))
+                            else:
+                                answer_string = str(answer_content)
+
+                            # Criar resposta manualmente
+                            response = QueryResult(
+                                answer=answer_string,
+                                query=raw_response.get('query', ''),
+                                context=raw_response.get('context', '')
+                            )
+                            logger.info(
+                                f"Recuperada resposta do erro: {answer_string[:100]}...")
+
+                        except json.JSONDecodeError as json_err:
+                            logger.error(
+                                f"Erro ao decodificar JSON da resposta: {json_err}")
+                            return simulate_response(message, file_paths)
+                    else:
+                        # Não encontramos um padrão de resposta no erro
+                        return simulate_response(message, file_paths)
+
+                except Exception as extract_err:
+                    logger.error(
+                        f"Erro ao tentar extrair resposta do erro: {str(extract_err)}")
+                    return simulate_response(message, file_paths)
 
         # Verificar se a resposta contém código pandas e tentar executá-lo
         if response.query and not response.query.lower().startswith("não é possível"):
@@ -157,12 +214,26 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
                 # Adicionar resultado à resposta
                 if isinstance(result, pd.DataFrame):
                     response.context += f"\n\nResultado da consulta (primeiras 5 linhas):\n{result.head(5).to_string()}"
+                elif isinstance(result, (np.ndarray, pd.Series, list)):
+                    # Formatar arrays ou listas de forma mais legível
+                    formatted_result = "\n".join(
+                        [f"- {item}" for item in result])
+                    # Adicionar resultado à resposta
+                    response.answer = f"{response.answer}\n\nValores encontrados:\n{formatted_result}"
+                    response.context += f"\n\nResultado da consulta:\n{formatted_result}"
                 else:
                     response.context += f"\n\nResultado da consulta: {result}"
-
+                    # Para outros resultados que não são DataFrames, incluí-los também na resposta
+                    response.answer += f"\n\nResultado: {result}"
             except Exception as e:
                 logger.error(f"Erro ao executar código gerado: {str(e)}")
                 response.context += f"\n\nErro ao executar o código gerado: {str(e)}"
+
+        # Garantir novamente que answer seja sempre uma string
+        if isinstance(response.answer, list):
+            response.answer = "\n".join(map(str, response.answer))
+        else:
+            response.answer = str(response.answer)
 
         return {
             "answer": response.answer,
