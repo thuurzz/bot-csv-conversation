@@ -150,7 +150,7 @@ async def chat(request: ChatRequest):
                 status_code=400, detail="Nenhum arquivo selecionado para análise")
 
         # Processar a consulta usando langchain
-        response = await process_query_with_langchain(request.message, file_paths)
+        response = await process_query_with_langchain(request.message, file_paths, request.history)
 
         return ChatResponse(
             answer=response["answer"],

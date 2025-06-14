@@ -52,13 +52,14 @@ class QueryResult(BaseModel):
 parser = PydanticOutputParser(pydantic_object=QueryResult)
 
 
-async def process_query_with_langchain(message: str, file_paths: List[str]) -> Dict[str, str]:
+async def process_query_with_langchain(message: str, file_paths: List[str], history: List[Dict[str, str]] = None) -> Dict[str, str]:
     """
     Processa uma consulta em linguagem natural usando LangChain e modelos de IA
 
     Args:
         message: A mensagem/pergunta do usuário em linguagem natural
         file_paths: Lista de caminhos para os arquivos CSV a serem analisados
+        history: Lista de mensagens anteriores da conversa
 
     Returns:
         Dict[str, str]: Resposta processada pelo modelo
@@ -68,7 +69,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
         if not OPENAI_API_KEY:
             logger.warning(
                 "OPENAI_API_KEY não está configurada. Usando resposta simulada.")
-            return simulate_response(message, file_paths)
+            return simulate_response(message, file_paths, history)
 
         # Coletar informações sobre os arquivos CSV
         file_infos = []
@@ -97,17 +98,36 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
                     "error": str(e)
                 })
 
+        # Preparar histórico para o prompt
+        history_text = ""
+        if history and len(history) > 0:
+            history_text = "Histórico da conversa:\n"
+            for msg in history[-10:]:  # Usar apenas as últimas 10 mensagens para não sobrecarregar
+                # Verificar se é um objeto ChatMessage ou um dict
+                if hasattr(msg, 'role') and hasattr(msg, 'content'):
+                    # É um objeto ChatMessage (Pydantic)
+                    role = "Usuário" if msg.role == "user" else "Assistente"
+                    content = msg.content
+                else:
+                    # É um dict (fallback)
+                    role = "Usuário" if msg.get("role") == "user" else "Assistente"
+                    content = msg.get("content", "")
+                history_text += f"{role}: {content}\n"
+            history_text += "\n"
+
         # Criar prompt para o modelo
         template = """
         Você é um assistente especializado em análise de dados que responde perguntas sobre dados contidos em arquivos CSV.
         
-        Informações sobre os arquivos disponíveis:
+        {history}Informações sobre os arquivos disponíveis:
         {file_info}
         
         Quando necessário, gere código Python usando pandas para responder à pergunta do usuário.
         Se a pergunta não puder ser respondida com os dados disponíveis, explique o motivo.
         
-        Pergunta do usuário:
+        IMPORTANTE: Use o contexto da conversa anterior para fornecer respostas mais precisas e contextualizadas.
+        
+        Pergunta atual do usuário:
         {message}
         
         IMPORTANTE: Sempre responda com texto em formato string, não em listas. Estas respostas serão processadas por um parser que espera uma string e usado como query em pandas.
@@ -120,7 +140,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
 
         prompt = PromptTemplate(
             template=template,
-            input_variables=["file_info", "message"],
+            input_variables=["history", "file_info", "message"],
             partial_variables={
                 "format_instructions": parser.get_format_instructions()}
         )
@@ -139,6 +159,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
         with get_openai_callback() as cb:
             try:
                 response = chain.invoke({
+                    "history": history_text,
                     "file_info": file_info_str,
                     "message": message
                 })
@@ -182,15 +203,15 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
                         except json.JSONDecodeError as json_err:
                             logger.error(
                                 f"Erro ao decodificar JSON da resposta: {json_err}")
-                            return simulate_response(message, file_paths)
+                            return simulate_response(message, file_paths, history)
                     else:
                         # Não encontramos um padrão de resposta no erro
-                        return simulate_response(message, file_paths)
+                        return simulate_response(message, file_paths, history)
 
                 except Exception as extract_err:
                     logger.error(
                         f"Erro ao tentar extrair resposta do erro: {str(extract_err)}")
-                    return simulate_response(message, file_paths)
+                    return simulate_response(message, file_paths, history)
 
         # Verificar se a resposta contém código pandas e tentar executá-lo
         if response.query and not response.query.lower().startswith("não é possível"):
@@ -243,7 +264,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str]) -> D
 
     except Exception as e:
         logger.error(f"Erro ao processar consulta com LangChain: {str(e)}")
-        return simulate_response(message, file_paths)
+        return simulate_response(message, file_paths, history)
 
 
 def clean_code_block(code: str) -> str:
@@ -258,13 +279,14 @@ def clean_code_block(code: str) -> str:
     return code.strip()
 
 
-def simulate_response(message: str, file_paths: List[str]) -> Dict[str, str]:
+def simulate_response(message: str, file_paths: List[str], history: List[Dict[str, str]] = None) -> Dict[str, str]:
     """
     Gera uma resposta simulada quando o modelo de IA não está disponível
 
     Args:
         message: A mensagem/pergunta do usuário
         file_paths: Lista de caminhos para os arquivos CSV
+        history: Lista de mensagens anteriores da conversa
 
     Returns:
         Dict[str, str]: Resposta simulada
@@ -290,22 +312,28 @@ def simulate_response(message: str, file_paths: List[str]) -> Dict[str, str]:
 
     query_lower = message.lower()
 
+    # Verificar contexto do histórico para respostas mais inteligentes
+    context_from_history = ""
+    if history and len(history) > 0:
+        last_messages = [msg.get("content", "") for msg in history[-3:]]
+        context_from_history = f" (Com base na conversa anterior sobre: {', '.join(last_messages[-1:])})"
+
     # Gerar uma resposta com base em palavras-chave
     if any(word in query_lower for word in ["média", "media", "average", "mean"]):
         return {
-            "answer": f"Para calcular a média, eu precisaria analisar os dados numéricos nos arquivos: {', '.join(file_names)}.",
+            "answer": f"Para calcular a média, eu precisaria analisar os dados numéricos nos arquivos: {', '.join(file_names)}.{context_from_history}",
             "query": "df.select_dtypes(include=['number']).mean()",
             "context": "Esta é uma resposta simulada. Quando a API OpenAI estiver configurada, fornecerei análises reais dos dados."
         }
     elif any(word in query_lower for word in ["contar", "count", "quantos", "quanto"]):
         return {
-            "answer": f"Para contar ocorrências, eu analisaria a frequência de valores nos arquivos: {', '.join(file_names)}.",
+            "answer": f"Para contar ocorrências, eu analisaria a frequência de valores nos arquivos: {', '.join(file_names)}.{context_from_history}",
             "query": "df.value_counts()",
             "context": "Esta é uma resposta simulada. Quando a API OpenAI estiver configurada, fornecerei análises reais dos dados."
         }
     elif any(word in query_lower for word in ["mostrar", "show", "exibir", "listar", "list"]):
         return {
-            "answer": f"Aqui estaria uma prévia dos dados dos arquivos: {', '.join(file_names)}.",
+            "answer": f"Aqui estaria uma prévia dos dados dos arquivos: {', '.join(file_names)}.{context_from_history}",
             "query": "df.head(5)",
             "context": "Esta é uma resposta simulada. Quando a API OpenAI estiver configurada, fornecerei análises reais dos dados."
         }
@@ -315,7 +343,7 @@ def simulate_response(message: str, file_paths: List[str]) -> Dict[str, str]:
                                 for info in file_info])
 
         return {
-            "answer": f"Posso analisar os seguintes arquivos CSV:\n{files_info}",
+            "answer": f"Posso analisar os seguintes arquivos CSV:\n{files_info}{context_from_history}",
             "query": "",
             "context": "Esta é uma resposta simulada. Por favor, configure a variável de ambiente OPENAI_API_KEY para habilitar respostas reais do modelo de IA."
         }

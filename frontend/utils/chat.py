@@ -129,10 +129,22 @@ def generate_response(user_input):
             else:
                 url = f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/chat"
 
-            # Dados para a requisição
+            # Dados para a requisição - incluindo histórico de conversas
+            # Filtrar apenas mensagens de usuário e assistente, excluindo a mensagem de boas-vindas
+            history_to_send = []
+            if "messages" in st.session_state and len(st.session_state.messages) > 1:
+                # Pular a primeira mensagem (boas-vindas) e incluir as anteriores
+                # Começar do índice 1
+                for msg in st.session_state.messages[1:]:
+                    history_to_send.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
+
             payload = {
                 "message": user_input,
-                "files": prioritized_files  # Usando a lista com arquivo selecionado priorizado
+                "files": prioritized_files,  # Usando a lista com arquivo selecionado priorizado
+                "history": history_to_send  # Incluindo histórico de conversas
             }
 
             # Fazer a chamada para o backend
