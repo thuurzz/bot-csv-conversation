@@ -50,21 +50,211 @@ def check_backend_status():
         return False, f"Backend: Erro de conexão ({str(e)})"
 
 
+def format_response_for_display(response_text):
+    """
+    Formata a resposta do backend para melhor visualização no Streamlit
+
+    Args:
+        response_text: Resposta bruta do backend
+
+    Returns:
+        None (renderiza diretamente no Streamlit)
+    """
+    # Detectar se é um resultado numérico simples
+    if response_text.startswith("Resultado: ") and response_text.count("\n") == 0:
+        # Extrair o número
+        number = response_text.replace("Resultado: ", "")
+        if number.isdigit():
+            st.metric(label="Resultado da Consulta", value=number)
+            return
+
+    # Detectar se contém uma tabela/DataFrame
+    if "ID da Cirurgia" in response_text and "Especialidade" in response_text:
+        try:
+            # Tentar extrair e renderizar como DataFrame
+            lines = response_text.split('\n')
+
+            # Encontrar onde começa a tabela
+            table_start = -1
+            for i, line in enumerate(lines):
+                if "ID da Cirurgia" in line and "Data da Cirurgia" in line:
+                    table_start = i
+                    break
+
+            if table_start >= 0:
+                # Mostrar texto antes da tabela (se houver)
+                if table_start > 0:
+                    intro_text = '\n'.join(lines[:table_start]).strip()
+                    if intro_text and intro_text != "Resultado:":
+                        st.write(intro_text)
+
+                st.write("### 📊 Resultados encontrados:")
+
+                # Processar as linhas da tabela
+                table_lines = []
+                data_started = False
+
+                for line in lines[table_start:]:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Detectar início dos dados (linha com números)
+                    if line[0].isdigit() or data_started:
+                        data_started = True
+                        # Dividir por espaços múltiplos, mas preservar espaços em nomes
+                        parts = line.split()
+                        if len(parts) >= 15:  # Número mínimo de colunas esperado
+                            table_lines.append(parts)
+
+                if table_lines:
+                    # Criar DataFrame
+                    columns = ['ID', 'Data', 'Horário Agendado', 'Entrada', 'Saída',
+                               'Nome do Paciente', 'Idade', 'Gênero', 'Tipo de Cirurgia',
+                               'Especialidade', 'Duração (min)', 'Anestesista',
+                               'Cirurgião Principal', 'Status', 'Complicações']
+
+                    # Processar dados
+                    processed_data = []
+                    for row in table_lines:
+                        if len(row) >= 15:
+                            # Reconstruir nome do paciente (pode ter espaços)
+                            nome_parts = []
+                            idade_found = False
+                            for i, part in enumerate(row[5:]):
+                                if part.isdigit() and not idade_found:
+                                    idade_found = True
+                                    break
+                                nome_parts.append(part)
+
+                            nome_completo = ' '.join(nome_parts)
+
+                            processed_row = [
+                                row[0],  # ID
+                                row[1],  # Data
+                                row[2],  # Horário Agendado
+                                row[3],  # Entrada
+                                row[4],  # Saída
+                                nome_completo,  # Nome
+                                row[5 + len(nome_parts)],  # Idade
+                                row[6 + len(nome_parts)],  # Gênero
+                                row[7 + len(nome_parts)],  # Tipo de Cirurgia
+                                row[8 + len(nome_parts)],  # Especialidade
+                                row[9 + len(nome_parts)],  # Duração
+                                row[10 + len(nome_parts)],  # Anestesista
+                                row[11 + len(nome_parts)],  # Cirurgião
+                                row[12 + len(nome_parts)],  # Status
+                                # Complicações
+                                row[13 + len(nome_parts)] if len(row) > 13 +
+                                len(nome_parts) else "N/A"
+                            ]
+                            processed_data.append(processed_row)
+
+                    if processed_data:
+                        df_display = pd.DataFrame(
+                            processed_data, columns=columns)
+
+                        # Mostrar métricas resumo
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total de Cirurgias", len(df_display))
+                        with col2:
+                            especialidades = df_display['Especialidade'].unique(
+                            )
+                            st.metric("Especialidades", len(especialidades))
+                        with col3:
+                            duracao_media = pd.to_numeric(
+                                df_display['Duração (min)'], errors='coerce').mean()
+                            st.metric("Duração Média",
+                                      f"{duracao_media:.0f} min")
+
+                        # Mostrar tabela interativa
+                        st.dataframe(
+                            df_display,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "ID": st.column_config.NumberColumn("ID", width="small"),
+                                "Data": st.column_config.DateColumn("Data", width="small"),
+                                "Duração (min)": st.column_config.NumberColumn("Duração", width="small"),
+                                "Nome do Paciente": st.column_config.TextColumn("Paciente", width="medium"),
+                                "Tipo de Cirurgia": st.column_config.TextColumn("Cirurgia", width="medium"),
+                            }
+                        )
+
+                        # Gráfico de distribuição por especialidade
+                        if len(df_display) > 1:
+                            st.write("### 📈 Distribuição por Especialidade")
+                            esp_counts = df_display['Especialidade'].value_counts(
+                            )
+                            st.bar_chart(esp_counts)
+
+                        return
+
+        except Exception as e:
+            print(f"Erro ao processar tabela: {e}")
+            # Fallback para texto simples
+            pass
+
+    # Detectar listas ou contagens
+    if response_text.startswith("Resultado: ") and "\n" in response_text:
+        lines = response_text.split('\n')
+        if len(lines) > 1:
+            result_line = lines[0]
+            rest_content = '\n'.join(lines[1:])
+
+            # Mostrar resultado principal destacado
+            if ":" in result_line:
+                value = result_line.split(": ", 1)[1]
+                st.success(f"✅ {value}")
+            else:
+                st.info(result_line)
+
+            # Mostrar conteúdo adicional
+            if rest_content.strip():
+                with st.expander("📋 Detalhes adicionais"):
+                    st.text(rest_content)
+            return
+
+    # Formatação padrão para outros tipos de resposta
+    lines = response_text.split('\n')
+
+    # Se é uma resposta curta, mostrar como destaque
+    if len(lines) == 1 and len(response_text) < 100:
+        st.info(f"💬 {response_text}")
+    else:
+        # Para respostas longas, mostrar com formatação melhorada
+        for line in lines:
+            if line.strip():
+                if line.startswith("- ") or line.startswith("• "):
+                    st.write(f"• {line[2:]}")
+                elif ":" in line and len(line.split(":")) == 2:
+                    key, value = line.split(":", 1)
+                    st.write(f"**{key.strip()}:** {value.strip()}")
+                else:
+                    st.write(line)
+
+
 def display_chat_messages():
     """
-    Exibe o histórico de mensagens do chat na interface
+    Exibe o histórico de mensagens do chat na interface com formatação melhorada
     """
     # Adicionar botão para limpar o histórico
-    if st.button("Limpar histórico", key="clear_chat"):
+    if st.button("🗑️ Limpar histórico", key="clear_chat"):
         st.session_state.messages = [
             {"role": "assistant", "content": "Histórico de chat limpo. Como posso ajudar?"}
         ]
         st.rerun()
 
     # Mostrar todas as mensagens do histórico
-    for message in st.session_state.messages:
+    for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            st.write(message["content"])
+            if message["role"] == "assistant":
+                # Usar formatação melhorada para respostas do assistente
+                format_response_for_display(message["content"])
+            else:
+                # Mensagens do usuário ficam simples
+                st.write(message["content"])
 
 
 def process_message(user_input):
