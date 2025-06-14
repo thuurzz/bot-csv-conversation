@@ -346,8 +346,14 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
         exec_globals = {**safe_globals, **local_vars}
 
         # Verificar se é uma query de múltiplas linhas ou com assignments
-        has_assignment = '=' in code and not code.strip().startswith('(')
-        has_multiple_statements = ';' in code
+        has_assignment = '=' in code and not any([
+            code.strip().startswith('('),
+            '==' in code,  # Comparações não são assignments
+            '!=' in code,  # Comparações não são assignments
+            '>=' in code,  # Comparações não são assignments
+            '<=' in code,  # Comparações não são assignments
+        ])
+        has_multiple_statements = ';' in code or '\n' in code.strip()
 
         if has_assignment or has_multiple_statements:
             # Para queries complexas, usar exec
