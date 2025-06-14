@@ -196,16 +196,27 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
         # Executar a query se fornecida
         if response.query and response.query.strip():
             logger.info(f"⚙️ === INICIANDO EXECUÇÃO DA QUERY ===")
+            query_executed_successfully = False
             try:
                 # Execução mais segura da query
                 result = execute_pandas_query(response.query, dataframes)
 
                 if result is not None:
                     logger.info(f"✅ Query executada com sucesso!")
+                    query_executed_successfully = True
 
                     # Atualizar a resposta com o resultado real
                     if isinstance(result, (int, float)):
-                        response.answer = f"Resultado: {result}"
+                        # Tratamento especial para cálculos de tempo/atraso
+                        if "atraso" in response.query.lower() or "tempo" in response.query.lower():
+                            if result < 0:
+                                response.answer = f"Em média, as cirurgias começam {abs(result):.1f} minutos ANTES do horário agendado (não há atraso, mas sim antecipação)."
+                            elif result == 0:
+                                response.answer = f"Em média, as cirurgias começam exatamente no horário agendado (atraso médio de 0 minutos)."
+                            else:
+                                response.answer = f"Em média, as cirurgias atrasam {result:.1f} minutos para começar."
+                        else:
+                            response.answer = f"Resultado: {result}"
                         logger.info(f"📈 Resultado numérico: {result}")
                     elif isinstance(result, pd.DataFrame):
                         if len(result) <= 20:  # Se for pequeno, mostrar tudo
@@ -218,16 +229,44 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                         response.answer = f"Resultado:\n{result.to_string()}"
                         logger.info(
                             f"📋 Series resultado com {len(result)} valores")
+                    elif isinstance(result, tuple):
+                        # Formatação especial para tuplas (como nome do médico + quantidade)
+                        if len(result) == 2:
+                            response.answer = f"Resultado: {result[0]} com {result[1]} ocorrências"
+                        else:
+                            response.answer = f"Resultado: {result}"
+                        logger.info(f"📄 Tupla resultado: {result}")
                     else:
                         response.answer = f"Resultado: {result}"
                         logger.info(
                             f"📄 Outro tipo de resultado: {type(result)}")
 
-                    response.context += f"\n\nQuery executada: {response.query}"
+                    response.context += f"\n\nQuery executada com sucesso: {response.query}"
 
             except Exception as e:
                 logger.error(f"❌ Erro ao executar query: {str(e)}")
-                response.context += f"\n\nErro ao executar query: {str(e)}"
+                query_executed_successfully = False
+
+                # IMPORTANTE: Se a query falhou, não retornar dados inventados
+                # Retornar uma mensagem de erro clara
+                error_message = (
+                    f"❌ Não consegui processar sua consulta devido a um erro técnico:\n\n"
+                    f"**Erro:** {str(e)}\n\n"
+                    f"**Sugestões:**\n"
+                    f"• Tente reformular sua pergunta de forma mais específica\n"
+                    f"• Verifique se os nomes das colunas estão corretos\n"
+                    f"• Para cálculos de tempo, seja mais explícito sobre o formato desejado\n\n"
+                    f"**Exemplo de perguntas que funcionam bem:**\n"
+                    f"• 'Quantas cirurgias foram realizadas?'\n"
+                    f"• 'Qual médico fez mais cirurgias?'\n"
+                    f"• 'Liste as cirurgias de ortopedia'"
+                )
+
+                return {
+                    "answer": error_message,
+                    "query": response.query,
+                    "context": f"Erro na execução da query: {str(e)}"
+                }
         else:
             logger.info(f"ℹ️ Nenhuma query foi gerada ou necessária")
 
@@ -295,19 +334,57 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
         # Adicionar dataframes
         local_vars = {}
         for i, (filename, df) in enumerate(dataframes.items()):
-            local_vars[f'df_{i+1}'] = df
+            # Fazer uma cópia para não modificar o original
+            local_vars[f'df_{i+1}'] = df.copy()
 
         # Se há apenas um dataframe, disponibilizar como 'df'
         if len(dataframes) == 1:
-            local_vars['df'] = list(dataframes.values())[0]
+            local_vars['df'] = list(dataframes.values())[0].copy()
             logger.info(
                 f"Dataframe principal 'df' configurado com {len(local_vars['df'])} linhas")
 
-        # Executar sempre com eval para queries simples
         exec_globals = {**safe_globals, **local_vars}
 
-        logger.info(f"Executando com eval: {code}")
-        result = eval(code, exec_globals)
+        # Verificar se é uma query de múltiplas linhas ou com assignments
+        has_assignment = '=' in code and not code.strip().startswith('(')
+        has_multiple_statements = ';' in code
+
+        if has_assignment or has_multiple_statements:
+            # Para queries complexas, usar exec
+            logger.info(f"Executando query complexa com exec: {code}")
+
+            # Executar e capturar resultado
+            local_namespace = exec_globals.copy()
+            exec(code, local_namespace)
+
+            # Tentar encontrar variáveis de resultado comuns
+            result_vars = ['result', 'media_atraso',
+                           'atraso_medio', 'resposta', 'output']
+            result = None
+
+            for var in result_vars:
+                if var in local_namespace:
+                    result = local_namespace[var]
+                    logger.info(
+                        f"Resultado encontrado na variável '{var}': {result}")
+                    break
+
+            # Se não encontrou resultado em variáveis, tentar o último valor definido
+            if result is None:
+                # Procurar por variáveis que não estavam no namespace original
+                new_vars = {k: v for k, v in local_namespace.items()
+                            if k not in exec_globals and not k.startswith('__')}
+                if new_vars:
+                    # Pegar a última variável criada
+                    last_var = list(new_vars.keys())[-1]
+                    result = new_vars[last_var]
+                    logger.info(
+                        f"Resultado encontrado na última variável criada '{last_var}': {result}")
+
+        else:
+            # Para queries simples, usar eval
+            logger.info(f"Executando query simples com eval: {code}")
+            result = eval(code, exec_globals)
 
         # Log do resultado
         logger.info(f"=== RESULTADO DA QUERY ===")
@@ -318,10 +395,20 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
         elif isinstance(result, pd.DataFrame):
             logger.info(
                 f"DataFrame resultado: {len(result)} linhas, {len(result.columns)} colunas")
-            logger.info(f"Resultado completo:\n{result.to_string()}")
+            if len(result) <= 10:
+                logger.info(f"Resultado completo:\n{result.to_string()}")
+            else:
+                logger.info(
+                    f"Primeiras 5 linhas:\n{result.head(5).to_string()}")
         elif isinstance(result, pd.Series):
             logger.info(f"Series resultado: {len(result)} valores")
-            logger.info(f"Resultado completo:\n{result.to_string()}")
+            if len(result) <= 20:
+                logger.info(f"Resultado completo:\n{result.to_string()}")
+            else:
+                logger.info(
+                    f"Primeiros 10 valores:\n{result.head(10).to_string()}")
+        elif isinstance(result, tuple):
+            logger.info(f"Tupla resultado: {result}")
         else:
             # Limitar log se for muito grande
             logger.info(f"Resultado: {str(result)[:500]}...")
