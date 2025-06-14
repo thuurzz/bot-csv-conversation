@@ -5,7 +5,7 @@ import pandas as pd
 import uuid
 from pathlib import Path
 from utils.session import init_session_state, get_username, clear_chat_history
-from utils.file_manager import list_available_files, upload_file, get_file_preview, remove_file
+from utils.file_manager import list_available_files, upload_file, get_file_preview, remove_file, remove_all_files
 from utils.chat import display_chat_messages, process_message, analyze_csv, check_backend_status
 
 # Carregar variáveis de ambiente com caminho correto
@@ -72,17 +72,35 @@ def main():
 
         # Seção de Upload
         st.subheader("📤 Upload de Arquivos")
-        uploaded_file = st.file_uploader("Escolha um arquivo CSV", type="csv")
+        uploaded_file = st.file_uploader(
+            "Escolha um arquivo CSV ou ZIP contendo CSVs",
+            type=["csv", "zip"],
+            help="Você pode enviar arquivos CSV individuais ou um arquivo ZIP contendo múltiplos CSVs"
+        )
 
         # Upload de arquivo
         if uploaded_file:
-            if upload_file(uploaded_file):
-                st.success(
-                    f"Arquivo '{uploaded_file.name}' enviado com sucesso!")
-                # Selecionar automaticamente o novo arquivo enviado
-                st.session_state.selected_file = uploaded_file.name
-            else:
-                st.error("Erro ao fazer upload do arquivo.")
+            # Verificar se este arquivo já foi processado nesta sessão
+            file_key = f"{uploaded_file.name}_{uploaded_file.size}"
+
+            if "processed_uploads" not in st.session_state:
+                st.session_state.processed_uploads = set()
+
+            if file_key not in st.session_state.processed_uploads:
+                success, processed_files = upload_file(uploaded_file)
+                if success:
+                    st.success(
+                        f"Arquivo '{uploaded_file.name}' enviado com sucesso!")
+                    # Marcar este arquivo como processado
+                    st.session_state.processed_uploads.add(file_key)
+                    # Selecionar o primeiro arquivo processado
+                    if processed_files:
+                        st.session_state.selected_file = processed_files[0]
+                    # Recarregar APENAS uma vez
+                    st.rerun()
+                else:
+                    st.error("Erro ao fazer upload do arquivo.")
+            # Se já foi processado, não fazer nada (evita loop infinito)
 
         st.markdown("---")
 
@@ -91,6 +109,21 @@ def main():
         files = list_available_files()
 
         if files:
+            # Botão para remover todos os arquivos
+            st.warning(
+                f"📊 Total: {len(files)} arquivo(s) na base de conhecimento")
+
+            if st.button("🗑️ LIMPAR TODA A BASE DE CONHECIMENTO", type="secondary", use_container_width=True):
+                success, removed_count = remove_all_files()
+                if success:
+                    st.success(
+                        f"✅ Base de conhecimento limpa! {removed_count} arquivo(s) removido(s).")
+                    st.rerun()
+                else:
+                    st.error("❌ Erro ao limpar a base de conhecimento.")
+
+            st.markdown("---")
+
             # Se for o primeiro arquivo e nenhum foi selecionado, selecione-o automaticamente
             if len(files) == 1 and not st.session_state.selected_file:
                 st.session_state.selected_file = files[0]

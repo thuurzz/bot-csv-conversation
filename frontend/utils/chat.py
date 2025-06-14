@@ -132,8 +132,7 @@ def generate_response(user_input):
             # Dados para a requisição
             payload = {
                 "message": user_input,
-                "files": prioritized_files,  # Usando a lista com arquivo selecionado priorizado
-                "selected_file": selected_file  # Informando explicitamente o arquivo selecionado
+                "files": prioritized_files  # Usando a lista com arquivo selecionado priorizado
             }
 
             # Fazer a chamada para o backend

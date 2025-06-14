@@ -81,13 +81,13 @@ Documentação interativa da API: http://localhost:8000/docs
 ### Frontend (Streamlit)
 
 - **Sessão de usuário**: Identificação e persistência de sessão
-- **Upload de arquivos CSV**: Interface para envio e visualização de arquivos
+- **Upload de arquivos CSV e ZIP**: Interface para envio e visualização de arquivos CSV individuais ou arquivos ZIP contendo múltiplos CSVs
 - **Chat interativo**: Interface para conversar com o assistente de IA
 - **Visualização de dados**: Exibição de informações sobre os arquivos
 
 ### Backend (FastAPI)
 
-- **Gerenciamento de arquivos**: Upload, listagem e download de CSVs
+- **Gerenciamento de arquivos**: Upload, listagem e download de CSVs e processamento de arquivos ZIP
 - **Análise de dados**: Processamento de dados usando pandas
 - **Integração com LangChain**: Processamento de perguntas em linguagem natural
 - **API RESTful**: Endpoints documentados para integração
@@ -96,8 +96,10 @@ Documentação interativa da API: http://localhost:8000/docs
 
 1. **Upload de arquivos**:
 
-   - O usuário faz upload de arquivos CSV através da interface frontend
+   - O usuário faz upload de arquivos CSV individuais ou arquivos ZIP contendo múltiplos CSVs através da interface frontend
+   - Para arquivos ZIP, o sistema extrai automaticamente todos os CSVs válidos e os salva individualmente
    - Os arquivos são salvos no servidor e os metadados são extraídos
+   - Arquivos duplicados são automaticamente renomeados para evitar conflitos
 
 2. **Seleção de arquivos**:
 
@@ -116,6 +118,16 @@ Documentação interativa da API: http://localhost:8000/docs
 4. **Exibição de resultados**:
    - O frontend recebe a resposta formatada
    - Exibe o resultado para o usuário, junto com contexto adicional
+
+## Suporte a Arquivos ZIP
+
+O sistema agora suporta upload de arquivos ZIP contendo múltiplos arquivos CSV:
+
+- **Extração automática**: Quando um arquivo ZIP é enviado, o sistema extrai automaticamente todos os arquivos CSV válidos
+- **Validação de conteúdo**: Cada arquivo extraído é validado para garantir que é um CSV válido
+- **Prevenção de conflitos**: Arquivos com nomes duplicados são automaticamente renomeados
+- **Informações detalhadas**: O sistema fornece informações sobre quantos arquivos foram extraídos e processados
+- **Suporte a estruturas de diretório**: O sistema funciona mesmo se os CSVs estiverem em subdiretórios dentro do ZIP
 
 ## Integração com LangChain
 
