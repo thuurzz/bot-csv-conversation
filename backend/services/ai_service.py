@@ -148,11 +148,12 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
 
         INSTRUÇÕES IMPORTANTES:
         1. Analise os dados reais fornecidos acima
-        2. Se precisar gerar código pandas, use apenas operações simples e seguras
-        3. O dataframe principal está disponível como 'df'
-        4. Para contar valores, use df['coluna'].value_counts() ou len(df)
-        5. Para filtrar, use df[df['coluna'] == 'valor']
-        6. Seja preciso com os dados reais mostrados
+        2. Use EXATAMENTE os nomes das colunas como mostrado nos dados
+        3. NUNCA truncar ou abreviar nomes de colunas - use o nome completo
+        4. O dataframe principal está disponível como 'df'
+        5. Para contar valores, use df['coluna'].value_counts() ou len(df)
+        6. Para filtrar, use df[df['coluna'] == 'valor']
+        7. Seja preciso com os dados reais mostrados
 
         RESPONDA NO FORMATO:
         {format_instructions}
