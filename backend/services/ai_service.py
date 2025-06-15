@@ -17,19 +17,46 @@ from pydantic import BaseModel, Field
 # Corrigindo import
 from backend.config import get_config
 
-# Configuração do logger com mais detalhes
+# Garantir que o diretório de logs existe - CORRIGIDO para usar o diretório correto
+logs_dir = Path(__file__).parent.parent / "logs"  # Usar a pasta logs/ da raiz
+logs_dir.mkdir(parents=True, exist_ok=True)
+
+# Configuração do logger principal
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('backend/logs/api.log'),
+        logging.FileHandler(logs_dir / 'api.log'),
         logging.StreamHandler()  # Para mostrar no console
     ]
 )
 logger = logging.getLogger(__name__)
 
+# Logger específico para interações com IA
+ai_logger = logging.getLogger('ai_interactions')
+ai_logger.setLevel(logging.INFO)
+
+# Remover handlers existentes para evitar duplicação
+for handler in ai_logger.handlers[:]:
+    ai_logger.removeHandler(handler)
+
+# Handler para arquivo de logs de IA separado
+ai_log_file = logs_dir / 'ai_interactions.log'
+ai_handler = logging.FileHandler(ai_log_file)
+ai_formatter = logging.Formatter(
+    '%(asctime)s - AI_INTERACTION - %(levelname)s - %(message)s')
+ai_handler.setFormatter(ai_formatter)
+ai_logger.addHandler(ai_handler)
+
+# Evitar propagação para o logger pai
+ai_logger.propagate = False
+
 # Definir nível de log específico para este módulo
 logger.setLevel(logging.INFO)
+
+# Teste inicial do logging
+logger.info("=== AI SERVICE INICIADO ===")
+ai_logger.info("=== LOGGER DE IA CONFIGURADO E FUNCIONANDO ===")
 
 # Carregar configurações
 config = get_config()
@@ -65,11 +92,10 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
     Processa uma consulta em linguagem natural usando LangChain e modelos de IA
     """
     try:
-        # Log inicial da consulta
-        logger.info(f"🔍 === NOVA CONSULTA RECEBIDA ===")
-        logger.info(f"Pergunta do usuário: {message}")
+        # Log inicial da consulta - SIMPLIFICADO
         logger.info(
-            f"Arquivos selecionados: {[Path(fp).name for fp in file_paths]}")
+            f"🔍 Nova consulta: '{message[:50]}{'...' if len(message) > 50 else ''}'")
+        logger.info(f"📁 Arquivos: {len(file_paths)} arquivo(s)")
 
         # Verificar se temos a chave da API
         if not OPENAI_API_KEY:
@@ -78,10 +104,10 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
             return simulate_response(message, file_paths, history)
 
         # Coletar informações sobre os arquivos CSV
-        file_infos = []
+        file_infos = {}
         dataframes = {}
 
-        logger.info(f"📊 === CARREGANDO DADOS DOS ARQUIVOS ===")
+        logger.info(f"📊 Carregando {len(file_paths)} arquivo(s)...")
         for file_path in file_paths:
             filename = Path(file_path).name
             try:
@@ -89,33 +115,28 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                 dataframes[filename] = df
 
                 logger.info(
-                    f"✅ Arquivo '{filename}' carregado: {len(df)} linhas, {len(df.columns)} colunas")
+                    f"✅ {filename}: {len(df)} linhas, {len(df.columns)} colunas")
 
-                # Análise mais detalhada dos dados para melhor contexto
-                sample_data = df.head(10).to_string()  # Mais dados de exemplo
-                unique_counts = {}
-                for col in df.columns:
-                    if df[col].dtype == 'object':
-                        # Primeiros 10 valores únicos
-                        unique_vals = df[col].dropna().unique()[:10]
-                        unique_counts[col] = list(unique_vals)
+                # Análise REDUZIDA dos dados - apenas estrutura, não valores
+                # APENAS 2 linhas de exemplo, sem estatísticas que revelem resultados
+                # Reduzido de 10 para 2 linhas
+                sample_data = df.head(2).to_string()
 
+                # INFORMAÇÕES BÁSICAS apenas - sem estatísticas que revelem resultados
                 file_info = {
                     "filename": filename,
                     "total_rows": len(df),
                     "columns": list(df.columns),
                     "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
                     "sample_data": sample_data,
-                    "unique_values": unique_counts,
-                    "summary_stats": df.describe(include='all').to_string() if len(df) > 0 else "DataFrame vazio"
+                    "structure_info": f"Dataset com {len(df)} registros e {len(df.columns)} colunas. Tipos: {df.dtypes.value_counts().to_dict()}"
                 }
-                file_infos.append(file_info)
+                file_infos[filename] = file_info
             except Exception as e:
                 logger.error(f"❌ Erro ao ler o arquivo {filename}: {str(e)}")
-                file_infos.append({
-                    "filename": filename,
+                file_infos[filename] = {
                     "error": str(e)
-                })
+                }
 
         # Preparar histórico para o prompt
         history_text = ""
@@ -181,7 +202,37 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
         # Criar e executar a cadeia
         chain = prompt | model | parser
 
+        # NOVO: Log detalhado do que está sendo enviado para o modelo
+        formatted_prompt = prompt.format(
+            history=history_text,
+            file_info=file_info_str,
+            message=message,
+            format_instructions=parser.get_format_instructions()
+        )
+
+        # Log do prompt completo que será enviado
+        try:
+            log_file_path = logs_dir / 'ai_interactions.log'
+            with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                log_file.write(f"\n{'='*80}\n")
+                log_file.write(f"TIMESTAMP: {pd.Timestamp.now()}\n")
+                log_file.write(f"PERGUNTA DO USUÁRIO: {message}\n")
+                log_file.write(
+                    f"ARQUIVOS: {[Path(fp).name for fp in file_paths]}\n")
+                log_file.write(
+                    f"TAMANHO DO PROMPT: {len(formatted_prompt)} caracteres\n")
+                log_file.write(f"{'='*80}\n")
+                log_file.write(f"PROMPT COMPLETO ENVIADO PARA O MODELO:\n")
+                log_file.write(f"{'='*80}\n")
+                log_file.write(formatted_prompt)
+                log_file.write(f"\n{'='*80}\n\n")
+                log_file.flush()  # Forçar gravação
+        except Exception as e:
+            logger.error(f"Erro ao escrever log manual: {e}")
+
         logger.info(f"🤖 === CONSULTANDO MODELO DE IA ===")
+        logger.info(f"📏 Tamanho do prompt: {len(formatted_prompt)} caracteres")
+
         # Obter resposta
         with get_openai_callback() as cb:
             response = chain.invoke({
@@ -192,6 +243,22 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
             logger.info(f"📊 Tokens utilizados: {cb.total_tokens}")
             logger.info(f"💰 Custo estimado: ${cb.total_cost:.6f}")
 
+            # Log da resposta recebida do modelo - INCLUINDO TODAS AS INFORMAÇÕES
+            try:
+                log_file_path = logs_dir / 'ai_interactions.log'
+                with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                    log_file.write(f"RESPOSTA RECEBIDA DO MODELO:\n")
+                    log_file.write(f"{'='*50}\n")
+                    log_file.write(f"Answer: {response.answer}\n")
+                    log_file.write(f"Query: {response.query}\n")
+                    log_file.write(f"Context: {response.context}\n")
+                    log_file.write(f"Tokens utilizados: {cb.total_tokens}\n")
+                    log_file.write(f"Custo estimado: ${cb.total_cost:.6f}\n")
+                    log_file.write(f"{'='*50}\n")
+                    log_file.flush()  # Forçar gravação
+            except Exception as e:
+                logger.error(f"Erro ao escrever log da resposta: {e}")
+
         logger.info(f"🎯 === RESPOSTA DO MODELO ===")
         logger.info(f"Resposta: {response.answer}")
         logger.info(f"Query gerada: {response.query}")
@@ -199,15 +266,59 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
 
         # Executar a query se fornecida
         if response.query and response.query.strip():
-            logger.info(f"⚙️ === INICIANDO EXECUÇÃO DA QUERY ===")
+            logger.info(
+                f"⚙️ Executando query: {response.query[:100]}{'...' if len(response.query) > 100 else ''}")
             query_executed_successfully = False
             try:
                 # Execução mais segura da query
                 result = execute_pandas_query(response.query, dataframes)
 
                 if result is not None:
-                    logger.info(f"✅ Query executada com sucesso!")
+                    logger.info(
+                        f"✅ Query executada com sucesso! Tipo: {type(result).__name__}")
                     query_executed_successfully = True
+
+                    # Log do resultado da query executada
+                    try:
+                        log_file_path = logs_dir / 'ai_interactions.log'
+                        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                            log_file.write(
+                                f"RESULTADO DA EXECUÇÃO DA QUERY:\n")
+                            log_file.write(f"{'='*50}\n")
+                            log_file.write(
+                                f"Query executada: {response.query}\n")
+                            log_file.write(
+                                f"Tipo do resultado: {type(result)}\n")
+
+                            if isinstance(result, (int, float)):
+                                log_file.write(f"Valor numérico: {result}\n")
+                            elif isinstance(result, pd.DataFrame):
+                                log_file.write(
+                                    f"DataFrame: {len(result)} linhas, {len(result.columns)} colunas\n")
+                                if len(result) <= 10:
+                                    log_file.write(
+                                        f"Resultado completo:\n{result.to_string()}\n")
+                                else:
+                                    log_file.write(
+                                        f"Primeiras 5 linhas:\n{result.head(5).to_string()}\n")
+                            elif isinstance(result, pd.Series):
+                                log_file.write(
+                                    f"Series: {len(result)} valores\n")
+                                if len(result) <= 20:
+                                    log_file.write(
+                                        f"Resultado:\n{result.to_string()}\n")
+                                else:
+                                    log_file.write(
+                                        f"Primeiros 10 valores:\n{result.head(10).to_string()}\n")
+                            else:
+                                log_file.write(
+                                    f"Resultado: {str(result)[:500]}\n")
+
+                            log_file.write(f"Status: Execução bem-sucedida\n")
+                            log_file.write(f"{'='*50}\n\n")
+                            log_file.flush()
+                    except Exception as e:
+                        logger.error(f"Erro ao escrever log do resultado: {e}")
 
                     # Atualizar a resposta com o resultado real
                     if isinstance(result, (int, float)):
@@ -221,34 +332,34 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                                 response.answer = f"Em média, as cirurgias atrasam {result:.1f} minutos para começar."
                         else:
                             response.answer = f"Resultado: {result}"
-                        logger.info(f"📈 Resultado numérico: {result}")
+                        logger.info(f"📈 Resultado: {result}")
                     elif isinstance(result, pd.DataFrame):
                         if len(result) <= 20:  # Se for pequeno, mostrar tudo
                             response.answer = f"Resultado:\n{result.to_string()}"
                         else:
                             response.answer = f"Resultado (primeiras 10 linhas):\n{result.head(10).to_string()}\n\nTotal de {len(result)} registros encontrados."
                         logger.info(
-                            f"📊 DataFrame resultado com {len(result)} linhas")
+                            f"📊 DataFrame: {len(result)} linhas")
                     elif isinstance(result, pd.Series):
                         response.answer = f"Resultado:\n{result.to_string()}"
                         logger.info(
-                            f"📋 Series resultado com {len(result)} valores")
+                            f"📋 Series: {len(result)} valores")
                     elif isinstance(result, tuple):
                         # Formatação especial para tuplas (como nome do médico + quantidade)
                         if len(result) == 2:
                             response.answer = f"Resultado: {result[0]} com {result[1]} ocorrências"
                         else:
                             response.answer = f"Resultado: {result}"
-                        logger.info(f"📄 Tupla resultado: {result}")
+                        logger.info(f"📄 Tupla: {result}")
                     else:
                         response.answer = f"Resultado: {result}"
-                        logger.info(
-                            f"📄 Outro tipo de resultado: {type(result)}")
+                        logger.info(f"📄 Resultado: {type(result).__name__}")
 
                     response.context += f"\n\nQuery executada com sucesso: {response.query}"
 
             except Exception as e:
-                logger.error(f"❌ Erro ao executar query: {str(e)}")
+                logger.error(
+                    f"❌ Erro na execução: {str(e)[:100]}{'...' if len(str(e)) > 100 else ''}")
                 query_executed_successfully = False
 
                 # IMPORTANTE: Se a query falhou, não retornar dados inventados
@@ -272,9 +383,9 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                     "context": f"Erro na execução da query: {str(e)}"
                 }
         else:
-            logger.info(f"ℹ️ Nenhuma query foi gerada ou necessária")
+            logger.info(f"ℹ️ Nenhuma query gerada")
 
-        logger.info(f"🏁 === CONSULTA FINALIZADA ===")
+        logger.info(f"🏁 Consulta finalizada - resposta gerada com sucesso")
         logger.info(f"Resposta final: {response.answer[:200]}...")
 
         return {
@@ -296,44 +407,8 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
         # Limpar o código
         code = clean_code_block(query)
 
-        # Log da query que será executada
-        logger.info(f"=== EXECUTANDO QUERY ===")
-        logger.info(f"Query original: {query}")
-        logger.info(f"Query limpa: {code}")
-
-        # Log dos dataframes disponíveis
-        for filename, df in dataframes.items():
-            logger.info(
-                f"Dataframe '{filename}': {len(df)} linhas, {len(df.columns)} colunas")
-            logger.info(f"Colunas: {list(df.columns)}")
-            logger.info(f"Primeiras 3 linhas:\n{df.head(3).to_string()}")
-
-        # Preparar ambiente seguro com TODAS as funções built-in necessárias
-        safe_builtins = {
-            'len': len,
-            'str': str,
-            'int': int,
-            'float': float,
-            'list': list,
-            'dict': dict,
-            'tuple': tuple,
-            'set': set,
-            'sum': sum,
-            'min': min,
-            'max': max,
-            'abs': abs,
-            'round': round,
-            'sorted': sorted,
-            'enumerate': enumerate,
-            'range': range,
-            'zip': zip,
-        }
-
-        safe_globals = {
-            'pd': pd,
-            'np': np,
-            '__builtins__': safe_builtins
-        }
+        # Log simplificado para console - sem poluir com detalhes
+        logger.info(f"⚙️ Executando query pandas...")
 
         # Adicionar dataframes
         local_vars = {}
@@ -347,20 +422,13 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
         main_df = list(dataframes.values())[0].copy()
         local_vars['df'] = main_df
 
+        # Log simplificado dos dataframes disponíveis
         if len(dataframes) == 1:
             logger.info(
-                f"Dataframe único 'df' configurado: {len(main_df)} linhas, {len(main_df.columns)} colunas")
+                f"📊 Dataframe único: {len(main_df)} linhas, {len(main_df.columns)} colunas")
         else:
             logger.info(
-                f"Múltiplos dataframes detectados ({len(dataframes)}). Disponibilizando:")
-            for i, (filename, df) in enumerate(dataframes.items()):
-                var_name = f'df_{i+1}'
-                logger.info(
-                    f"  {var_name} = {filename} ({len(df)} linhas, {len(df.columns)} colunas)")
-            logger.info(
-                f"  df = {list(dataframes.keys())[0]} (dataframe principal padrão)")
-            logger.info(
-                f"Dica: Use df_1, df_2, etc. para acessar dataframes específicos")
+                f"📊 Múltiplos dataframes: {len(dataframes)} arquivos carregados")
 
         exec_globals = {**safe_globals, **local_vars}
 
@@ -376,8 +444,6 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
 
         if has_assignment or has_multiple_statements:
             # Para queries complexas, usar exec
-            logger.info(f"Executando query complexa com exec: {code}")
-
             # Executar e capturar resultado
             local_namespace = exec_globals.copy()
             exec(code, local_namespace)
@@ -390,8 +456,6 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
             for var in result_vars:
                 if var in local_namespace:
                     result = local_namespace[var]
-                    logger.info(
-                        f"Resultado encontrado na variável '{var}': {result}")
                     break
 
             # Se não encontrou resultado em variáveis, tentar o último valor definido
@@ -403,49 +467,19 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
                     # Pegar a última variável criada
                     last_var = list(new_vars.keys())[-1]
                     result = new_vars[last_var]
-                    logger.info(
-                        f"Resultado encontrado na última variável criada '{last_var}': {result}")
 
         else:
             # Para queries simples, usar eval
-            logger.info(f"Executando query simples com eval: {code}")
             result = eval(code, exec_globals)
 
-        # Log do resultado
-        logger.info(f"=== RESULTADO DA QUERY ===")
-        logger.info(f"Tipo do resultado: {type(result)}")
+        # Log simplificado do resultado - apenas tipo e resumo
+        logger.info(f"✅ Query executada: {type(result).__name__}")
 
-        if isinstance(result, (int, float, str)):
-            logger.info(f"Valor: {result}")
-        elif isinstance(result, pd.DataFrame):
-            logger.info(
-                f"DataFrame resultado: {len(result)} linhas, {len(result.columns)} colunas")
-            if len(result) <= 10:
-                logger.info(f"Resultado completo:\n{result.to_string()}")
-            else:
-                logger.info(
-                    f"Primeiras 5 linhas:\n{result.head(5).to_string()}")
-        elif isinstance(result, pd.Series):
-            logger.info(f"Series resultado: {len(result)} valores")
-            if len(result) <= 20:
-                logger.info(f"Resultado completo:\n{result.to_string()}")
-            else:
-                logger.info(
-                    f"Primeiros 10 valores:\n{result.head(10).to_string()}")
-        elif isinstance(result, tuple):
-            logger.info(f"Tupla resultado: {result}")
-        else:
-            # Limitar log se for muito grande
-            logger.info(f"Resultado: {str(result)[:500]}...")
-
-        logger.info(f"=== FIM DA EXECUÇÃO ===")
         return result
 
     except Exception as e:
-        logger.error(f"=== ERRO NA EXECUÇÃO DA QUERY ===")
-        logger.error(f"Query: {code}")
-        logger.error(f"Erro: {str(e)}")
-        logger.error(f"=== FIM DO ERRO ===")
+        logger.error(
+            f"❌ Erro na execução da query: {str(e)[:100]}{'...' if len(str(e)) > 100 else ''}")
         raise e
 
 
