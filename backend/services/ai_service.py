@@ -410,6 +410,33 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
         # Log simplificado para console - sem poluir com detalhes
         logger.info(f"⚙️ Executando query pandas...")
 
+        # Preparar ambiente seguro com TODAS as funções built-in necessárias
+        safe_builtins = {
+            'len': len,
+            'str': str,
+            'int': int,
+            'float': float,
+            'list': list,
+            'dict': dict,
+            'tuple': tuple,
+            'set': set,
+            'sum': sum,
+            'min': min,
+            'max': max,
+            'abs': abs,
+            'round': round,
+            'sorted': sorted,
+            'enumerate': enumerate,
+            'range': range,
+            'zip': zip,
+        }
+
+        safe_globals = {
+            'pd': pd,
+            'np': np,
+            '__builtins__': safe_builtins
+        }
+
         # Adicionar dataframes
         local_vars = {}
         for i, (filename, df) in enumerate(dataframes.items()):
