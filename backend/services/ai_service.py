@@ -151,9 +151,11 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
         2. Use EXATAMENTE os nomes das colunas como mostrado nos dados
         3. NUNCA truncar ou abreviar nomes de colunas - use o nome completo
         4. O dataframe principal está disponível como 'df'
-        5. Para contar valores, use df['coluna'].value_counts() ou len(df)
-        6. Para filtrar, use df[df['coluna'] == 'valor']
-        7. Seja preciso com os dados reais mostrados
+        5. Se há múltiplos arquivos, use df_1, df_2, etc. para acessar específicos
+        6. Para contar valores, use df['coluna'].value_counts() ou len(df)
+        7. Para filtrar, use df[df['coluna'] == 'valor']
+        8. Seja preciso com os dados reais mostrados
+        9. Se a pergunta envolve múltiplos arquivos, considere usar df_1, df_2, etc. ou fazer merge/join se apropriado
 
         RESPONDA NO FORMATO:
         {format_instructions}
@@ -170,7 +172,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
 
         # Configurar modelo
         model = ChatOpenAI(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             temperature=0.0,  # Mais determinístico
             api_key=OPENAI_API_KEY
         )
@@ -338,11 +340,26 @@ def execute_pandas_query(query: str, dataframes: Dict[str, pd.DataFrame]):
             # Fazer uma cópia para não modificar o original
             local_vars[f'df_{i+1}'] = df.copy()
 
-        # Se há apenas um dataframe, disponibilizar como 'df'
+        # SEMPRE disponibilizar 'df' como o dataframe principal
+        # Se há apenas um dataframe, usar esse
+        # Se há múltiplos, usar o primeiro como padrão
+        main_df = list(dataframes.values())[0].copy()
+        local_vars['df'] = main_df
+
         if len(dataframes) == 1:
-            local_vars['df'] = list(dataframes.values())[0].copy()
             logger.info(
-                f"Dataframe principal 'df' configurado com {len(local_vars['df'])} linhas")
+                f"Dataframe único 'df' configurado: {len(main_df)} linhas, {len(main_df.columns)} colunas")
+        else:
+            logger.info(
+                f"Múltiplos dataframes detectados ({len(dataframes)}). Disponibilizando:")
+            for i, (filename, df) in enumerate(dataframes.items()):
+                var_name = f'df_{i+1}'
+                logger.info(
+                    f"  {var_name} = {filename} ({len(df)} linhas, {len(df.columns)} colunas)")
+            logger.info(
+                f"  df = {list(dataframes.keys())[0]} (dataframe principal padrão)")
+            logger.info(
+                f"Dica: Use df_1, df_2, etc. para acessar dataframes específicos")
 
         exec_globals = {**safe_globals, **local_vars}
 
