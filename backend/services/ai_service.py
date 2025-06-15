@@ -156,6 +156,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
         7. Para filtrar, use df[df['coluna'] == 'valor']
         8. Seja preciso com os dados reais mostrados
         9. Se a pergunta envolve múltiplos arquivos, considere usar df_1, df_2, etc. ou fazer merge/join se apropriado
+        10. Se perguntado sobre valores, nas querys formate o resultado como valor monetário (ex: R$ 1.234,56) ou percentual (ex: 12,34%)
 
         RESPONDA NO FORMATO:
         {format_instructions}

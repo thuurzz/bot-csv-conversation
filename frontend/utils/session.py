@@ -31,15 +31,8 @@ def init_session_state():
 
 def get_username():
     """
-    Retorna o nome de usuário atual e permite alteração
+    Retorna o nome de usuário atual
     """
-    username = st.text_input("Seu nome de usuário:",
-                             value=st.session_state.username)
-
-    # Atualizar nome de usuário se foi alterado
-    if username != st.session_state.username:
-        st.session_state.username = username
-
     return st.session_state.username
 
 

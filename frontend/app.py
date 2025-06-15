@@ -151,8 +151,6 @@ def main():
                 if st.button(f"Perguntar sobre {selected_file}"):
                     question = f"Me fale sobre o arquivo {selected_file}"
                     process_message(question)
-                    # O st.rerun() não é necessário aqui, pois o processo de submissão
-                    # já será acionado pela atualização do estado
 
                 # Botão para remover o arquivo selecionado
                 if st.button("🗑️ Remover arquivo selecionado", key="remove_selected_sidebar"):
@@ -164,113 +162,101 @@ def main():
                     else:
                         st.error(
                             f"Erro ao remover o arquivo '{selected_file}'.")
+
+            # Mostrar lista compacta de arquivos na sidebar
+            st.markdown("---")
+            st.caption("📋 Lista de arquivos:")
+            for file in files:
+                st.text(f"• {file}")
+
         else:
             st.info(
                 "Nenhum arquivo disponível. Faça upload de um arquivo CSV para começar.")
 
-    # Área principal - duas colunas
-    col1, col2 = st.columns([2, 1])
+        st.markdown("---")
 
-    with col1:
-        # Área do chat
-        st.title("💬 Chat com o Assistente CSV")
-
-        # Mostrar o arquivo selecionado ao usuário
-        if st.session_state.selected_file:
-            st.caption(
-                f"📄 Arquivo selecionado: **{st.session_state.selected_file}**")
-
-        display_chat_messages()
-
-        # Campo de mensagem configurado para enviar somente quando pressionar Enter
-        st.text_input(
-            "Digite sua pergunta sobre os dados e pressione Enter para enviar...",
-            key="user_input",
-            placeholder="Ex: Quantas linhas tem o arquivo? Quais são as colunas?",
-            on_change=handle_message_submit
-        )
-
-        # Dica para o usuário
-        st.caption("💡 Pressione Enter para enviar sua pergunta")
-
-        # Botões de sugestões
-        st.write("Ou tente uma destas perguntas:")
-        sugestoes_col1, sugestoes_col2 = st.columns(2)
-
-        with sugestoes_col1:
-            if st.button("Listar todos os arquivos"):
-                process_message("Listar todos os arquivos CSV disponíveis")
-                st.rerun()  # Recarregar a página para mostrar a resposta imediatamente
-
-            if st.button("Mostrar estatísticas básicas"):
-                process_message("Mostrar estatísticas básicas dos dados")
-                st.rerun()  # Recarregar a página para mostrar a resposta imediatamente
-
-        with sugestoes_col2:
-            if st.button("Verificar colunas"):
-                process_message("Quais são as colunas dos arquivos?")
-                st.rerun()  # Recarregar a página para mostrar a resposta imediatamente
-
-            if st.button("Limpar Chat"):
-                clear_chat_history()
-                st.rerun()  # Recarregar a página para limpar o histórico imediatamente
-
-    with col2:
-        # Informações sobre o projeto
-        st.title("ℹ️ Sobre")
-        st.info("""
-        **Bot de Conversação CSV**
-        
-        Este assistente permite fazer perguntas sobre seus dados CSV 
-        usando linguagem natural.
-        
-        **Como usar:**
-        1. Faça upload de arquivos CSV na barra lateral
-        2. Selecione um arquivo para ver detalhes
-        3. Digite uma pergunta e pressione Enter para enviar
-        4. O assistente analisará os dados e responderá
-        
-        **Recursos:**
-        - Análise de dados CSV via perguntas em linguagem natural
-        - Visualizações de dados interativas
-        - Exportação de análises
-        """)
-
-        # Status do sistema com verificação real do backend
-        st.subheader("📡 Status do Sistema")
-        st.success("Frontend: Operacional")
+        # Status do Sistema na Sidebar
+        st.subheader("📡 Status da Conexão")
 
         # Verificar status do backend
         backend_connected, backend_message = check_backend_status()
         if backend_connected:
-            st.success(backend_message)
+            st.success(f"Backend: {backend_message}")
         else:
-            st.error(backend_message)
+            st.error(f"Backend: {backend_message}")
 
-        # Mostrar arquivos em tabela compacta
-        if files:
-            st.subheader("Arquivos Disponíveis")
+        # Botão para recarregar o status abaixo da mensagem
+        if st.button("🔄 Testar conexão", help="Verificar conexão novamente", key="refresh_backend_status"):
+            st.rerun()
 
-            # Criando colunas para cada arquivo com botão de remover
-            for file in files:
-                col_file, col_remove = st.columns([3, 1])
+    # Área principal - Layout mais focado no chat
+    st.title("💬 Chat com o Assistente CSV")
 
-                with col_file:
-                    st.write(file)
+    # Expander com instruções sempre disponível
+    with st.expander("❓ Como usar", expanded=False):
+        st.markdown("""
+        **Como usar o Assistente CSV:**
+        
+        1. **Upload de Arquivos**: Faça upload de arquivos CSV ou ZIP na barra lateral
+        2. **Seleção**: Selecione um arquivo para análise na lista disponível
+        3. **Perguntas**: Digite perguntas em linguagem natural sobre seus dados
+        4. **Resultados**: O assistente analisará os dados e fornecerá respostas detalhadas
+        
+        **Exemplos de perguntas:**
+        - "Quantas linhas tem o arquivo?"
+        - "Quais são as colunas disponíveis?"
+        - "Mostre as primeiras 10 linhas"
+        - "Calcule a média da coluna X"
+        - "Crie um gráfico das vendas por mês"
+        
+        **Recursos disponíveis:**
+        - Análise estatística automática
+        - Geração de gráficos e visualizações
+        - Filtros e consultas personalizadas
+        - Histórico de conversas
+        """)
 
-                with col_remove:
-                    if st.button("🗑️ Remover", key=f"remove_{file}"):
-                        if remove_file(file):
-                            st.success(
-                                f"Arquivo '{file}' removido com sucesso!")
-                            st.rerun()
-                        else:
-                            st.error(f"Erro ao remover arquivo '{file}'.")
+    # Mostrar o arquivo selecionado ao usuário
+    if st.session_state.selected_file:
+        st.info(f"📄 Arquivo selecionado: **{st.session_state.selected_file}**")
 
-            # Mostrar também em formato de tabela para referência
-            st.caption("Lista completa de arquivos:")
-            df_files = pd.DataFrame({"Arquivo": files})
-            st.dataframe(df_files, hide_index=True, use_container_width=True)
+    # Área do chat - agora ocupa mais espaço
+    display_chat_messages()
+
+    # Campo de mensagem
+    st.text_input(
+        "Digite sua pergunta sobre os dados e pressione Enter para enviar...",
+        key="user_input",
+        placeholder="Ex: Quantas linhas tem o arquivo? Quais são as colunas?",
+        on_change=handle_message_submit
+    )
+
+    # Dica para o usuário
+    st.caption("💡 Pressione Enter para enviar sua pergunta")
+
+    # Botões de sugestões em layout horizontal
+    st.write("**Sugestões rápidas:**")
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        if st.button("📋 Listar arquivos", use_container_width=True):
+            process_message("Listar todos os arquivos CSV disponíveis")
+            st.rerun()
+
+    with col2:
+        if st.button("📊 Estatísticas", use_container_width=True):
+            process_message("Mostrar estatísticas básicas dos dados")
+            st.rerun()
+
+    with col3:
+        if st.button("🏷️ Verificar colunas", use_container_width=True):
+            process_message("Quais são as colunas dos arquivos?")
+            st.rerun()
+
+    with col4:
+        if st.button("🧹 Limpar Chat", use_container_width=True):
+            clear_chat_history()
+            st.rerun()
 
 
 if __name__ == "__main__":
