@@ -89,12 +89,12 @@ async def get_files():
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     """
-    Faz upload de um arquivo CSV
+    Faz upload de um arquivo CSV ou ZIP contendo CSVs
     """
     try:
-        if not file.filename.lower().endswith('.csv'):
+        if not (file.filename.lower().endswith('.csv') or file.filename.lower().endswith('.zip')):
             raise HTTPException(
-                status_code=400, detail="Apenas arquivos CSV são permitidos")
+                status_code=400, detail="Apenas arquivos CSV e ZIP são permitidos")
 
         file_info = await save_uploaded_file(file)
         return file_info
@@ -150,7 +150,7 @@ async def chat(request: ChatRequest):
                 status_code=400, detail="Nenhum arquivo selecionado para análise")
 
         # Processar a consulta usando langchain
-        response = await process_query_with_langchain(request.message, file_paths)
+        response = await process_query_with_langchain(request.message, file_paths, request.history)
 
         return ChatResponse(
             answer=response["answer"],

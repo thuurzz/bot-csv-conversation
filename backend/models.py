@@ -23,17 +23,30 @@ class FileInfo(BaseModel):
         }
 
 
+class ChatMessage(BaseModel):
+    """Modelo para uma mensagem individual do chat"""
+    role: str = Field(..., description="Papel: 'user' ou 'assistant'")
+    content: str = Field(..., description="Conteúdo da mensagem")
+
+
 class ChatRequest(BaseModel):
     """Modelo para requisição de chat com dados CSV"""
-    message: str = Field(..., description="Pergunta em linguagem natural")
+    message: str = Field(...,
+                         description="Pergunta atual em linguagem natural")
     files: List[str] = Field(...,
                              description="Lista de nomes dos arquivos CSV a serem consultados")
+    history: Optional[List[ChatMessage]] = Field(
+        default=[], description="Histórico de mensagens anteriores")
 
     class Config:
         schema_extra = {
             "example": {
                 "message": "Qual é a média da coluna 'vendas'?",
-                "files": ["vendas.csv"]
+                "files": ["vendas.csv"],
+                "history": [
+                    {"role": "user", "content": "Quantas linhas tem o arquivo?"},
+                    {"role": "assistant", "content": "O arquivo tem 1000 linhas."}
+                ]
             }
         }
 
