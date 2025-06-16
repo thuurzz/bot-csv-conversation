@@ -64,20 +64,20 @@ def format_response_for_display(response_text):
     if response_text.startswith("Resultado: ") and response_text.count("\n") == 0:
         # Extrair o número
         number = response_text.replace("Resultado: ", "")
-        if number.isdigit():
+        if number.replace(".", "").replace(",", "").replace("-", "").isdigit():
             st.metric(label="Resultado da Consulta", value=number)
             return
 
-    # Detectar se contém uma tabela/DataFrame
-    if "ID da Cirurgia" in response_text and "Especialidade" in response_text:
+    # Detectar se contém uma tabela/DataFrame genérica
+    if "|" in response_text and "\n" in response_text:
         try:
             # Tentar extrair e renderizar como DataFrame
             lines = response_text.split('\n')
 
-            # Encontrar onde começa a tabela
+            # Encontrar onde começa a tabela (procurar por linhas com separadores)
             table_start = -1
             for i, line in enumerate(lines):
-                if "ID da Cirurgia" in line and "Data da Cirurgia" in line:
+                if "|" in line and len(line.split("|")) > 2:
                     table_start = i
                     break
 
@@ -90,106 +90,72 @@ def format_response_for_display(response_text):
 
                 st.write("### 📊 Resultados encontrados:")
 
-                # Processar as linhas da tabela
+                # Processar as linhas da tabela de forma genérica
                 table_lines = []
+                headers = []
                 data_started = False
 
                 for line in lines[table_start:]:
                     line = line.strip()
-                    if not line:
+                    if not line or line.startswith("+"):
                         continue
 
-                    # Detectar início dos dados (linha com números)
-                    if line[0].isdigit() or data_started:
-                        data_started = True
-                        # Dividir por espaços múltiplos, mas preservar espaços em nomes
-                        parts = line.split()
-                        if len(parts) >= 15:  # Número mínimo de colunas esperado
+                    if "|" in line:
+                        parts = [part.strip()
+                                 for part in line.split("|") if part.strip()]
+
+                        if parts and not data_started:
+                            # Primeira linha com dados é o cabeçalho
+                            headers = parts
+                            data_started = True
+                        elif parts and data_started and len(parts) == len(headers):
                             table_lines.append(parts)
 
-                if table_lines:
-                    # Criar DataFrame
-                    columns = ['ID', 'Data', 'Horário Agendado', 'Entrada', 'Saída',
-                               'Nome do Paciente', 'Idade', 'Gênero', 'Tipo de Cirurgia',
-                               'Especialidade', 'Duração (min)', 'Anestesista',
-                               'Cirurgião Principal', 'Status', 'Complicações']
+                if table_lines and headers:
+                    # Criar DataFrame genérico
+                    df_display = pd.DataFrame(table_lines, columns=headers)
 
-                    # Processar dados
-                    processed_data = []
-                    for row in table_lines:
-                        if len(row) >= 15:
-                            # Reconstruir nome do paciente (pode ter espaços)
-                            nome_parts = []
-                            idade_found = False
-                            for i, part in enumerate(row[5:]):
-                                if part.isdigit() and not idade_found:
-                                    idade_found = True
-                                    break
-                                nome_parts.append(part)
+                    # Mostrar métricas resumo genéricas
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total de Registros", len(df_display))
+                    with col2:
+                        st.metric("Colunas", len(df_display.columns))
+                    with col3:
+                        # Tentar encontrar coluna numérica para estatística
+                        numeric_cols = df_display.select_dtypes(
+                            include=['number']).columns
+                        if len(numeric_cols) > 0:
+                            first_numeric = numeric_cols[0]
+                            try:
+                                mean_val = pd.to_numeric(
+                                    df_display[first_numeric], errors='coerce').mean()
+                                st.metric(
+                                    f"Média ({first_numeric})", f"{mean_val:.2f}")
+                            except:
+                                st.metric("Dados", "Carregados")
+                        else:
+                            st.metric("Dados", "Carregados")
 
-                            nome_completo = ' '.join(nome_parts)
+                    # Mostrar tabela interativa
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
-                            processed_row = [
-                                row[0],  # ID
-                                row[1],  # Data
-                                row[2],  # Horário Agendado
-                                row[3],  # Entrada
-                                row[4],  # Saída
-                                nome_completo,  # Nome
-                                row[5 + len(nome_parts)],  # Idade
-                                row[6 + len(nome_parts)],  # Gênero
-                                row[7 + len(nome_parts)],  # Tipo de Cirurgia
-                                row[8 + len(nome_parts)],  # Especialidade
-                                row[9 + len(nome_parts)],  # Duração
-                                row[10 + len(nome_parts)],  # Anestesista
-                                row[11 + len(nome_parts)],  # Cirurgião
-                                row[12 + len(nome_parts)],  # Status
-                                # Complicações
-                                row[13 + len(nome_parts)] if len(row) > 13 +
-                                len(nome_parts) else "N/A"
-                            ]
-                            processed_data.append(processed_row)
-
-                    if processed_data:
-                        df_display = pd.DataFrame(
-                            processed_data, columns=columns)
-
-                        # Mostrar métricas resumo
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total de Cirurgias", len(df_display))
-                        with col2:
-                            especialidades = df_display['Especialidade'].unique(
+                    # Gráfico de distribuição genérico (primeira coluna categórica)
+                    if len(df_display) > 1:
+                        categorical_cols = df_display.select_dtypes(
+                            include=['object']).columns
+                        if len(categorical_cols) > 0:
+                            first_cat_col = categorical_cols[0]
+                            st.write(f"### 📈 Distribuição por {first_cat_col}")
+                            col_counts = df_display[first_cat_col].value_counts(
                             )
-                            st.metric("Especialidades", len(especialidades))
-                        with col3:
-                            duracao_media = pd.to_numeric(
-                                df_display['Duração (min)'], errors='coerce').mean()
-                            st.metric("Duração Média",
-                                      f"{duracao_media:.0f} min")
+                            st.bar_chart(col_counts)
 
-                        # Mostrar tabela interativa
-                        st.dataframe(
-                            df_display,
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "ID": st.column_config.NumberColumn("ID", width="small"),
-                                "Data": st.column_config.DateColumn("Data", width="small"),
-                                "Duração (min)": st.column_config.NumberColumn("Duração", width="small"),
-                                "Nome do Paciente": st.column_config.TextColumn("Paciente", width="medium"),
-                                "Tipo de Cirurgia": st.column_config.TextColumn("Cirurgia", width="medium"),
-                            }
-                        )
-
-                        # Gráfico de distribuição por especialidade
-                        if len(df_display) > 1:
-                            st.write("### 📈 Distribuição por Especialidade")
-                            esp_counts = df_display['Especialidade'].value_counts(
-                            )
-                            st.bar_chart(esp_counts)
-
-                        return
+                    return
 
         except Exception as e:
             print(f"Erro ao processar tabela: {e}")

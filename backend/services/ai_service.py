@@ -322,16 +322,8 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
 
                     # Atualizar a resposta com o resultado real
                     if isinstance(result, (int, float)):
-                        # Tratamento especial para cálculos de tempo/atraso
-                        if "atraso" in response.query.lower() or "tempo" in response.query.lower():
-                            if result < 0:
-                                response.answer = f"Em média, as cirurgias começam {abs(result):.1f} minutos ANTES do horário agendado (não há atraso, mas sim antecipação)."
-                            elif result == 0:
-                                response.answer = f"Em média, as cirurgias começam exatamente no horário agendado (atraso médio de 0 minutos)."
-                            else:
-                                response.answer = f"Em média, as cirurgias atrasam {result:.1f} minutos para começar."
-                        else:
-                            response.answer = f"Resultado: {result}"
+                        # Formatação genérica para valores numéricos
+                        response.answer = f"Resultado: {result}"
                         logger.info(f"📈 Resultado: {result}")
                     elif isinstance(result, pd.DataFrame):
                         if len(result) <= 20:  # Se for pequeno, mostrar tudo
@@ -345,7 +337,7 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                         logger.info(
                             f"📋 Series: {len(result)} valores")
                     elif isinstance(result, tuple):
-                        # Formatação especial para tuplas (como nome do médico + quantidade)
+                        # Formatação genérica para tuplas
                         if len(result) == 2:
                             response.answer = f"Resultado: {result[0]} com {result[1]} ocorrências"
                         else:
@@ -370,11 +362,11 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                     f"**Sugestões:**\n"
                     f"• Tente reformular sua pergunta de forma mais específica\n"
                     f"• Verifique se os nomes das colunas estão corretos\n"
-                    f"• Para cálculos de tempo, seja mais explícito sobre o formato desejado\n\n"
+                    f"• Para cálculos complexos, seja mais explícito sobre o formato desejado\n\n"
                     f"**Exemplo de perguntas que funcionam bem:**\n"
-                    f"• 'Quantas cirurgias foram realizadas?'\n"
-                    f"• 'Qual médico fez mais cirurgias?'\n"
-                    f"• 'Liste as cirurgias de ortopedia'"
+                    f"• 'Quantos registros tem o arquivo?'\n"
+                    f"• 'Qual valor máximo da coluna X?'\n"
+                    f"• 'Liste os dados da categoria Y'"
                 )
 
                 return {
