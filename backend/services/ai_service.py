@@ -326,16 +326,18 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                         response.answer = f"Resultado: {result}"
                         logger.info(f"📈 Resultado: {result}")
                     elif isinstance(result, pd.DataFrame):
-                        if len(result) <= 20:  # Se for pequeno, mostrar tudo
-                            response.answer = f"Resultado:\n{result.to_string()}"
-                        else:
-                            response.answer = f"Resultado (primeiras 10 linhas):\n{result.head(10).to_string()}\n\nTotal de {len(result)} registros encontrados."
-                        logger.info(
-                            f"📊 DataFrame: {len(result)} linhas")
+                        # Para DataFrames, retornar dados estruturados
+                        response.answer = f"Encontrados {len(result)} registros."
+                        # Adicionar dados estruturados na resposta
+                        response.context += f"\n\nTABLE_DATA:{result.to_json(orient='records', date_format='iso')}"
+                        logger.info(f"📊 DataFrame: {len(result)} linhas")
                     elif isinstance(result, pd.Series):
-                        response.answer = f"Resultado:\n{result.to_string()}"
-                        logger.info(
-                            f"📋 Series: {len(result)} valores")
+                        # Para Series, converter para DataFrame e retornar estruturado
+                        series_df = result.reset_index()
+                        series_df.columns = ['Item', 'Valor']
+                        response.answer = f"Encontrados {len(result)} itens."
+                        response.context += f"\n\nTABLE_DATA:{series_df.to_json(orient='records', date_format='iso')}"
+                        logger.info(f"📋 Series: {len(result)} valores")
                     elif isinstance(result, tuple):
                         # Formatação genérica para tuplas
                         if len(result) == 2:
@@ -343,6 +345,12 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
                         else:
                             response.answer = f"Resultado: {result}"
                         logger.info(f"📄 Tupla: {result}")
+                    elif isinstance(result, str) and len(result) > 200:
+                        # Para strings longas (como tabelas), tentar converter
+                        response.answer = f"Resultado obtido."
+                        response.context += f"\n\nTEXT_DATA:{result}"
+                        logger.info(
+                            f"📄 String longa: {len(result)} caracteres")
                     else:
                         response.answer = f"Resultado: {result}"
                         logger.info(f"📄 Resultado: {type(result).__name__}")

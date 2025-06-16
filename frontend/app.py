@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from utils.session import init_session_state, get_username, clear_chat_history
 from utils.file_manager import list_available_files, upload_file, get_file_preview, remove_file, remove_all_files
-from utils.chat import display_chat_messages, process_message, analyze_csv, check_backend_status
+from utils.chat import display_chat_messages, process_message, check_backend_status
 
 # Carregar variáveis de ambiente com caminho correto
 dotenv_path = os.path.join(os.path.dirname(

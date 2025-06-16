@@ -60,126 +60,87 @@ def format_response_for_display(response_text):
     Returns:
         None (renderiza diretamente no Streamlit)
     """
+    # Detectar se é uma resposta com dados tabulares
+    if response_text.startswith("TABLE_RESPONSE:"):
+        try:
+            # Extrair resposta e dados da tabela
+            content = response_text[len("TABLE_RESPONSE:"):]
+            parts = content.split("|", 1)
+            if len(parts) == 2:
+                answer, json_data = parts
+
+                # Converter JSON para DataFrame
+                data = json.loads(json_data)
+                df = pd.DataFrame(data)
+
+                # Exibir apenas a resposta textual limpa (sem os dados JSON)
+                st.write(answer)
+
+                # Exibir tabela interativa sem título chamativo
+                st.write("### 📊 Resultados:")
+
+                # Métricas resumo simplificadas
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Registros", len(df))
+                with col2:
+                    st.metric("Colunas", len(df.columns))
+
+                # Tabela principal
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # Botão de download simples
+                csv = df.to_csv(index=False)
+                import time
+                download_key = f"download_{int(time.time())}"
+                st.download_button(
+                    label="💾 Baixar CSV",
+                    data=csv,
+                    file_name="resultado.csv",
+                    mime="text/csv",
+                    key=download_key
+                )
+                return
+
+        except Exception as e:
+            st.error(f"Erro ao exibir dados tabulares: {str(e)}")
+            # Fallback para texto simples
+            st.write(response_text.replace("TABLE_RESPONSE:", ""))
+            return
+
+    # Detectar se é uma resposta com dados de texto formatados
+    if response_text.startswith("TEXT_RESPONSE:"):
+        try:
+            # Extrair resposta e dados de texto
+            content = response_text[len("TEXT_RESPONSE:"):]
+            parts = content.split("|", 1)
+            if len(parts) == 2:
+                answer, text_data = parts
+
+                # Exibir resposta textual
+                st.write(answer)
+
+                # Exibir dados em container com scroll
+                st.write("### 📋 Resultado detalhado:")
+                st.text(text_data)
+                return
+
+        except Exception as e:
+            st.error(f"Erro ao exibir dados de texto: {str(e)}")
+            # Fallback para texto simples
+            st.write(response_text.replace("TEXT_RESPONSE:", ""))
+            return
+
     # Detectar se é um resultado numérico simples
     if response_text.startswith("Resultado: ") and response_text.count("\n") == 0:
         # Extrair o número
         number = response_text.replace("Resultado: ", "")
         if number.replace(".", "").replace(",", "").replace("-", "").isdigit():
             st.metric(label="Resultado da Consulta", value=number)
-            return
-
-    # Detectar se contém uma tabela/DataFrame genérica
-    if "|" in response_text and "\n" in response_text:
-        try:
-            # Tentar extrair e renderizar como DataFrame
-            lines = response_text.split('\n')
-
-            # Encontrar onde começa a tabela (procurar por linhas com separadores)
-            table_start = -1
-            for i, line in enumerate(lines):
-                if "|" in line and len(line.split("|")) > 2:
-                    table_start = i
-                    break
-
-            if table_start >= 0:
-                # Mostrar texto antes da tabela (se houver)
-                if table_start > 0:
-                    intro_text = '\n'.join(lines[:table_start]).strip()
-                    if intro_text and intro_text != "Resultado:":
-                        st.write(intro_text)
-
-                st.write("### 📊 Resultados encontrados:")
-
-                # Processar as linhas da tabela de forma genérica
-                table_lines = []
-                headers = []
-                data_started = False
-
-                for line in lines[table_start:]:
-                    line = line.strip()
-                    if not line or line.startswith("+"):
-                        continue
-
-                    if "|" in line:
-                        parts = [part.strip()
-                                 for part in line.split("|") if part.strip()]
-
-                        if parts and not data_started:
-                            # Primeira linha com dados é o cabeçalho
-                            headers = parts
-                            data_started = True
-                        elif parts and data_started and len(parts) == len(headers):
-                            table_lines.append(parts)
-
-                if table_lines and headers:
-                    # Criar DataFrame genérico
-                    df_display = pd.DataFrame(table_lines, columns=headers)
-
-                    # Mostrar métricas resumo genéricas
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total de Registros", len(df_display))
-                    with col2:
-                        st.metric("Colunas", len(df_display.columns))
-                    with col3:
-                        # Tentar encontrar coluna numérica para estatística
-                        numeric_cols = df_display.select_dtypes(
-                            include=['number']).columns
-                        if len(numeric_cols) > 0:
-                            first_numeric = numeric_cols[0]
-                            try:
-                                mean_val = pd.to_numeric(
-                                    df_display[first_numeric], errors='coerce').mean()
-                                st.metric(
-                                    f"Média ({first_numeric})", f"{mean_val:.2f}")
-                            except:
-                                st.metric("Dados", "Carregados")
-                        else:
-                            st.metric("Dados", "Carregados")
-
-                    # Mostrar tabela interativa
-                    st.dataframe(
-                        df_display,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                    # Gráfico de distribuição genérico (primeira coluna categórica)
-                    if len(df_display) > 1:
-                        categorical_cols = df_display.select_dtypes(
-                            include=['object']).columns
-                        if len(categorical_cols) > 0:
-                            first_cat_col = categorical_cols[0]
-                            st.write(f"### 📈 Distribuição por {first_cat_col}")
-                            col_counts = df_display[first_cat_col].value_counts(
-                            )
-                            st.bar_chart(col_counts)
-
-                    return
-
-        except Exception as e:
-            print(f"Erro ao processar tabela: {e}")
-            # Fallback para texto simples
-            pass
-
-    # Detectar listas ou contagens
-    if response_text.startswith("Resultado: ") and "\n" in response_text:
-        lines = response_text.split('\n')
-        if len(lines) > 1:
-            result_line = lines[0]
-            rest_content = '\n'.join(lines[1:])
-
-            # Mostrar resultado principal destacado
-            if ":" in result_line:
-                value = result_line.split(": ", 1)[1]
-                st.success(f"✅ {value}")
-            else:
-                st.info(result_line)
-
-            # Mostrar conteúdo adicional
-            if rest_content.strip():
-                with st.expander("📋 Detalhes adicionais"):
-                    st.text(rest_content)
             return
 
     # Formatação padrão para outros tipos de resposta
@@ -236,12 +197,30 @@ def process_message(user_input):
     # Adiciona a mensagem do usuário ao histórico
     st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # Simula o processamento pelo modelo (placeholder para integração futura com backend)
-    response = generate_response(user_input)
+    # Gerar resposta do backend
+    response_data = generate_response(user_input)
 
-    # Adiciona a resposta do modelo ao histórico
-    st.session_state.messages.append(
-        {"role": "assistant", "content": response})
+    # Verificar se a resposta contém dados estruturados
+    if isinstance(response_data, dict):
+        # Se tem dados tabulares, armazenar de forma especial
+        if "table_data" in response_data:
+            # Criar uma mensagem especial que será detectada na exibição
+            message_content = f"TABLE_RESPONSE:{response_data['answer']}|{response_data['table_data']}"
+            st.session_state.messages.append(
+                {"role": "assistant", "content": message_content})
+        elif "text_data" in response_data:
+            # Para dados de texto formatados
+            message_content = f"TEXT_RESPONSE:{response_data['answer']}|{response_data['text_data']}"
+            st.session_state.messages.append(
+                {"role": "assistant", "content": message_content})
+        else:
+            # Resposta normal
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_data.get('answer', str(response_data))})
+    else:
+        # Resposta simples (string)
+        st.session_state.messages.append(
+            {"role": "assistant", "content": response_data})
 
 
 def generate_response(user_input):
@@ -311,6 +290,29 @@ def generate_response(user_input):
                 # Processar a resposta do backend
                 data = response.json()
                 answer = data.get("answer", "")
+                context = data.get("context", "")
+
+                # Verificar se há dados tabulares estruturados no contexto
+                if "TABLE_DATA:" in context:
+                    # Retornar dados estruturados em vez de exibir diretamente
+                    table_data_start = context.find(
+                        "TABLE_DATA:") + len("TABLE_DATA:")
+                    json_data = context[table_data_start:].split("\n")[
+                        0].strip()
+                    return {
+                        "answer": answer,
+                        "table_data": json_data
+                    }
+                elif "TEXT_DATA:" in context:
+                    # Retornar dados de texto estruturados
+                    text_data_start = context.find(
+                        "TEXT_DATA:") + len("TEXT_DATA:")
+                    text_data = context[text_data_start:].split("\n\n")[
+                        0].strip()
+                    return {
+                        "answer": answer,
+                        "text_data": text_data
+                    }
 
                 # Registrar informações adicionais para debug
                 query = data.get("query", "")
@@ -354,41 +356,72 @@ def generate_response(user_input):
         return f"Ocorreu um erro ao processar sua pergunta: {str(e)}"
 
 
-def analyze_csv(filename, query):
+def display_table_data(context, answer):
     """
-    Analisa um arquivo CSV com base em uma consulta
-    Esta função será expandida quando o backend estiver implementado
-
-    Args:
-        filename: Nome do arquivo CSV a ser analisado
-        query: Consulta do usuário
-
-    Returns:
-        str: Resultado da análise
+    Exibe dados tabulares estruturados usando componentes Streamlit nativos
     """
     try:
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        if not os.path.exists(file_path):
-            return f"Arquivo '{filename}' não encontrado."
+        # Extrair JSON dos dados da tabela
+        table_data_start = context.find("TABLE_DATA:") + len("TABLE_DATA:")
+        json_data = context[table_data_start:].split("\n")[0].strip()
 
-        # Lê o CSV
-        df = pd.read_csv(file_path)
+        # Converter JSON para DataFrame
+        data = json.loads(json_data)
+        df = pd.DataFrame(data)
 
-        # Análise básica (placeholder)
-        result = f"Análise do arquivo '{filename}':\n"
-        result += f"- Total de linhas: {len(df)}\n"
-        result += f"- Total de colunas: {len(df.columns)}\n"
-        result += f"- Colunas: {', '.join(df.columns)}\n"
+        # Exibir resposta textual
+        st.write(answer)
 
-        # Estatísticas numéricas básicas
-        numeric_cols = df.select_dtypes(include=['number']).columns
-        if len(numeric_cols) > 0:
-            result += "\nEstatísticas numéricas básicas:\n"
-            # Limitando a 3 colunas para não sobrecarregar
-            for col in numeric_cols[:3]:
-                result += f"- {col}: média={df[col].mean():.2f}, min={df[col].min():.2f}, max={df[col].max():.2f}\n"
+        # Exibir tabela interativa
+        st.write("### 📊 Resultados:")
 
-        return result
+        # Métricas resumo simplificadas
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Registros", len(df))
+        with col2:
+            st.metric("Colunas", len(df.columns))
+
+        # Tabela principal
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Botão de download simples
+        csv = df.to_csv(index=False)
+        import time
+        download_key = f"download_{int(time.time())}"
+        st.download_button(
+            label="💾 Baixar CSV",
+            data=csv,
+            file_name="resultado.csv",
+            mime="text/csv",
+            key=download_key
+        )
 
     except Exception as e:
-        return f"Erro ao analisar o arquivo: {str(e)}"
+        st.error(f"Erro ao exibir dados tabulares: {str(e)}")
+        st.write(answer)
+
+
+def display_text_data(context, answer):
+    """
+    Exibe dados de texto formatados
+    """
+    try:
+        # Extrair dados de texto
+        text_data_start = context.find("TEXT_DATA:") + len("TEXT_DATA:")
+        text_data = context[text_data_start:].split("\n\n")[0].strip()
+
+        # Exibir resposta textual
+        st.write(answer)
+
+        # Exibir dados em container com scroll
+        st.write("### 📋 Resultado detalhado:")
+        st.text(text_data)
+
+    except Exception as e:
+        st.error(f"Erro ao exibir dados de texto: {str(e)}")
+        st.write(answer)
