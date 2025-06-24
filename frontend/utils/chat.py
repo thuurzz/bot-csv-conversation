@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from .file_manager import list_available_files
 import requests
 import json
+import uuid
 
 # Carregar variáveis de ambiente com caminho correto
 dotenv_path = os.path.join(os.path.dirname(
@@ -93,10 +94,9 @@ def format_response_for_display(response_text):
                     hide_index=True
                 )
 
-                # Botão de download simples
+                # Botão de download simples com chave única
                 csv = df.to_csv(index=False)
-                import time
-                download_key = f"download_{int(time.time())}"
+                download_key = f"download_format_{uuid.uuid4().hex[:8]}"
                 st.download_button(
                     label="💾 Baixar CSV",
                     data=csv,
@@ -389,10 +389,9 @@ def display_table_data(context, answer):
             hide_index=True
         )
 
-        # Botão de download simples
+        # Botão de download simples com chave única
         csv = df.to_csv(index=False)
-        import time
-        download_key = f"download_{int(time.time())}"
+        download_key = f"download_display_{uuid.uuid4().hex[:8]}"
         st.download_button(
             label="💾 Baixar CSV",
             data=csv,
