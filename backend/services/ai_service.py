@@ -388,10 +388,53 @@ async def process_query_with_langchain(message: str, file_paths: List[str], hist
         logger.info(f"🏁 Consulta finalizada - resposta gerada com sucesso")
         logger.info(f"Resposta final: {response.answer[:200]}...")
 
+        # === NOVO: Segunda chamada ao LLM para explicação natural ===
+        natural_answer = None
+        try:
+            # Gerar um preview do resultado para o LLM
+            preview = None
+            if isinstance(result, pd.DataFrame):
+                preview = result.head(3).to_markdown(index=False) if len(
+                    result) > 0 else "DataFrame vazio."
+            elif isinstance(result, pd.Series):
+                preview = result.head(5).to_string() if len(
+                    result) > 0 else "Series vazia."
+            elif isinstance(result, (int, float, str)):
+                preview = str(result)
+            elif isinstance(result, tuple):
+                preview = str(result)
+            else:
+                preview = str(result)[:500]
+
+            explicacao_template = """
+            Você é um assistente de dados. Explique em linguagem natural, de forma clara e resumida, o resultado abaixo para um usuário leigo. Interprete o significado do resultado.
+
+            RESULTADO DA ANÁLISE:
+            {preview}
+
+            CONTEXTO DA PERGUNTA:
+            {message}
+            """
+            explicacao_prompt = PromptTemplate(
+                template=explicacao_template,
+                input_variables=["preview", "message"]
+            )
+            explicacao_chain = explicacao_prompt | model
+            natural_answer = explicacao_chain.invoke({
+                "preview": preview,
+                "message": message
+            })
+            if hasattr(natural_answer, 'content'):
+                natural_answer = natural_answer.content
+        except Exception as e:
+            logger.error(f"Erro ao gerar explicação natural: {e}")
+            natural_answer = None
+
         return {
             "answer": str(response.answer),
             "query": response.query,
-            "context": response.context
+            "context": response.context,
+            "natural_answer": natural_answer
         }
 
     except Exception as e:
