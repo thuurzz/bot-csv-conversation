@@ -157,6 +157,7 @@ async def chat(request: ChatRequest):
             # Query SQL/pandas gerada (se aplicável)
             query=response.get("query", ""),
             context=response.get("context", ""),  # Contexto utilizado
+            natural_answer=response.get("natural_answer", None),
             files=request.files
         )
     except HTTPException:

@@ -58,6 +58,8 @@ class ChatResponse(BaseModel):
         None, description="Query gerada para análise (se aplicável)")
     context: Optional[str] = Field(
         None, description="Contexto adicional para a resposta")
+    natural_answer: Optional[str] = Field(
+        None, description="Explicação em linguagem natural do resultado")
     files: List[str] = Field(..., description="Arquivos utilizados na análise")
 
     class Config:
@@ -66,6 +68,7 @@ class ChatResponse(BaseModel):
                 "answer": "A média da coluna 'vendas' é 5420.35.",
                 "query": "df['vendas'].mean()",
                 "context": "Analisamos os dados de vendas do arquivo e calculamos a média.",
+                "natural_answer": "A média é calculada somando todos os valores da coluna 'vendas' e dividindo pelo número de linhas.",
                 "files": ["vendas.csv"]
             }
         }

@@ -208,11 +208,24 @@ def process_message(user_input):
             message_content = f"TABLE_RESPONSE:{response_data['answer']}|{response_data['table_data']}"
             st.session_state.messages.append(
                 {"role": "assistant", "content": message_content})
+            # Exibir explicação natural, se houver
+            if response_data.get("natural_answer"):
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": response_data["natural_answer"]})
         elif "text_data" in response_data:
             # Para dados de texto formatados
             message_content = f"TEXT_RESPONSE:{response_data['answer']}|{response_data['text_data']}"
             st.session_state.messages.append(
                 {"role": "assistant", "content": message_content})
+            if response_data.get("natural_answer"):
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": response_data["natural_answer"]})
+        elif response_data.get("natural_answer"):
+            # Resposta normal + explicação natural
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_data.get('answer', str(response_data))})
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_data["natural_answer"]})
         else:
             # Resposta normal
             st.session_state.messages.append(
@@ -291,6 +304,7 @@ def generate_response(user_input):
                 data = response.json()
                 answer = data.get("answer", "")
                 context = data.get("context", "")
+                natural_answer = data.get("natural_answer", None)
 
                 # Verificar se há dados tabulares estruturados no contexto
                 if "TABLE_DATA:" in context:
@@ -301,7 +315,8 @@ def generate_response(user_input):
                         0].strip()
                     return {
                         "answer": answer,
-                        "table_data": json_data
+                        "table_data": json_data,
+                        "natural_answer": natural_answer
                     }
                 elif "TEXT_DATA:" in context:
                     # Retornar dados de texto estruturados
@@ -311,7 +326,8 @@ def generate_response(user_input):
                         0].strip()
                     return {
                         "answer": answer,
-                        "text_data": text_data
+                        "text_data": text_data,
+                        "natural_answer": natural_answer
                     }
 
                 # Registrar informações adicionais para debug
@@ -319,7 +335,11 @@ def generate_response(user_input):
                 if query:
                     print(f"Query gerada pelo backend: {query}")
 
-                return answer
+                # Retornar resposta e explicação natural
+                return {
+                    "answer": answer,
+                    "natural_answer": natural_answer
+                }
             else:
                 return f"Erro ao processar a consulta (código {response.status_code}). Por favor, tente novamente mais tarde."
 
