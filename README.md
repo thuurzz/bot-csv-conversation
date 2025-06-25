@@ -50,10 +50,10 @@ bot-csv-conversation/
 4. Configure as variáveis de ambiente no arquivo `config/.env`:
    ```
    OPENAI_API_KEY=sua_api_key_aqui
-   UPLOAD_FOLDER=uploads
+   UPLOAD_FOLDER=./../uploads
    MODEL_NAME=gpt-4o
    DEBUG=True
-   BACKEND_HOST=localhost
+   BACKEND_HOST=0.0.0.0
    BACKEND_PORT=8000
    ```
 
@@ -77,6 +77,13 @@ Para iniciar o servidor backend:
 ```bash
 cd backend
 python run.py
+```
+
+Se estive em ambiente linux, você pode usar o comando:
+
+```bash
+cd backend
+python3 run.py
 ```
 
 A API estará disponível em: http://localhost:8000
