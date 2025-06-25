@@ -270,11 +270,11 @@ OPENAI_API_KEY=sua_chave_openai_aqui
 MODEL_NAME=gpt-4o
 
 # Configurações do Sistema
-UPLOAD_FOLDER=uploads
+UPLOAD_FOLDER=./../uploads
 DEBUG=True
 
 # Configurações de Rede
-BACKEND_HOST=localhost
+BACKEND_HOST=0.0.0.0
 BACKEND_PORT=8000
 ```
 

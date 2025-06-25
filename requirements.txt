@@ -11,6 +11,7 @@ langchain>=0.0.300
 langchain-openai>=0.0.3
 pydantic>=2.0.0
 tabulate
+langchain_community
 
 # Utilitários comuns
 numpy>=1.26.0
