@@ -47,7 +47,7 @@ bot-csv-conversation/
    ```
    pip install -r requirements.txt
    ```
-4. Configure as variáveis de ambiente no arquivo `config/.env`:
+4. Configure as variáveis de ambiente no arquivo `config/.env` haverá um `.env.example` que você pode copiar e renomear para `.env`:
    ```
    OPENAI_API_KEY=sua_api_key_aqui
    UPLOAD_FOLDER=./../uploads
